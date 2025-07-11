@@ -15,6 +15,7 @@ import docker.models.containers
 import requests
 import os
 from dotenv import load_dotenv, find_dotenv
+from omcp_py.core.db import get_session, Sandbox as DBSandbox
 
 load_dotenv(find_dotenv())
 
@@ -27,22 +28,45 @@ class SandboxManager:
         self.config = config
         self.client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock"))
         self.sandboxes: Dict[str, dict] = {}
+        self._load_sandboxes_from_db()
         self._cleanup_old_sandboxes()  # Clean up on startup
-    
-    def _cleanup_old_sandboxes(self):
-        """Remove sandboxes that haven't been used within timeout period."""
-        now = datetime.now()
-        to_remove = []
-        
-        # Find sandboxes that have exceeded timeout
-        for sandbox_id, sandbox in self.sandboxes.items():
-            if now - sandbox["last_used"] > timedelta(seconds=self.config.sandbox_timeout):
-                to_remove.append(sandbox_id)
-        
-        # Remove expired sandboxes
-        for sandbox_id in to_remove:
-            self.remove_sandbox(sandbox_id)
-    
+
+    def _load_sandboxes_from_db(self):
+        session = get_session()
+        try:
+            db_sandboxes = session.query(DBSandbox).all()
+            for db_sandbox in db_sandboxes:
+                self.sandboxes[db_sandbox.id] = {
+                    "container": None,  # Not restoring running containers
+                    "created_at": db_sandbox.created_at,
+                    "last_used": db_sandbox.last_used
+                }
+        finally:
+            session.close()
+
+    def _save_sandbox_to_db(self, sandbox_id, created_at, last_used):
+        session = get_session()
+        try:
+            db_sandbox = session.query(DBSandbox).filter_by(id=sandbox_id).first()
+            if not db_sandbox:
+                db_sandbox = DBSandbox(id=sandbox_id, created_at=created_at, last_used=last_used)
+                session.add(db_sandbox)
+            else:
+                db_sandbox.last_used = last_used
+            session.commit()
+        finally:
+            session.close()
+
+    def _remove_sandbox_from_db(self, sandbox_id):
+        session = get_session()
+        try:
+            db_sandbox = session.query(DBSandbox).filter_by(id=sandbox_id).first()
+            if db_sandbox:
+                session.delete(db_sandbox)
+                session.commit()
+        finally:
+            session.close()
+
     def create_sandbox(self) -> str:
         """Create a new isolated Python sandbox container with enhanced security."""
         if len(self.sandboxes) >= self.config.max_sandboxes:
@@ -78,6 +102,7 @@ class SandboxManager:
                 "created_at": datetime.now(),
                 "last_used": datetime.now()
             }
+            self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
             
             logger.info(f"Created new sandbox {sandbox_id}")
             return sandbox_id
@@ -94,9 +119,11 @@ class SandboxManager:
         try:
             # Stop and remove the Docker container
             container:docker.models.containers.Container = self.sandboxes[sandbox_id]["container"]
-            container.stop(timeout=1)
-            container.remove()
+            if container:
+                container.stop(timeout=1)
+                container.remove()
             del self.sandboxes[sandbox_id]
+            self._remove_sandbox_from_db(sandbox_id)
             logger.info(f"Removed sandbox {sandbox_id}")
         except Exception as e:
             logger.error(f"Failed to remove sandbox {sandbox_id}: {e}")
@@ -108,6 +135,7 @@ class SandboxManager:
         
         container:docker.models.containers.Container = self.sandboxes[sandbox_id]["container"]
         self.sandboxes[sandbox_id]["last_used"] = datetime.now()  # Update usage time
+        self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
         
         try:
             # Execute code in container and capture output

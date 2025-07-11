@@ -81,6 +81,22 @@ The OMCP Python Sandbox is a secure, Model Context Protocol (MCP) compliant Pyth
 - **Isolation**: Complete network and filesystem isolation
 - **Resources**: CPU and memory limits
 
+## Database Integration and OMOP CDM Roadmap
+
+### Current State
+- Sandbox metadata is now persisted in a PostgreSQL database using SQLAlchemy, ensuring robust tracking and management of sandboxes across server restarts.
+
+### Future Direction: OMOP CDM Integration
+- The project aims to enable sandboxed Python code to securely connect to and query OMOP Common Data Model (CDM) data stored in PostgreSQL.
+- This will support clinical data science, analytics, and AI agents running code against OMOP CDM in a secure, auditable environment.
+- Planned features include:
+  - Secure credential injection for sandboxes to access OMOP CDM tables
+  - Example tools and code snippets for querying OMOP CDM (e.g., patient counts, cohort definitions)
+  - Fine-grained access controls and auditing for database queries
+  - Documentation and best practices for OMOP CDM analytics in the sandbox
+
+For more details and to contribute to this direction, see the Contributing section below.
+
 ---
 
 ## Features

@@ -315,3 +315,34 @@ pytest
 
 ## License
 MIT
+
+## Database Configuration
+
+Set the following environment variables (or add to your .env file) to configure PostgreSQL connection:
+
+```
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=omcp_user
+DB_PASSWORD=omcp_pass
+DB_NAME=omcp_db
+```
+
+## Database Integration and OMOP CDM Roadmap
+
+### Current State
+- Sandbox metadata (creation, usage, removal) is now persisted in a PostgreSQL database using SQLAlchemy.
+- This enables robust tracking and management of sandboxes, even across server restarts.
+
+### Next Steps: OMOP CDM Integration
+- The long-term goal is to enable sandboxed Python code to securely connect to and query OMOP Common Data Model (CDM) data stored in PostgreSQL.
+- This will allow data science, analytics, and AI agents to run code against real clinical data in a controlled, auditable, and secure environment.
+- Future features will include:
+  - Secure credential injection for sandboxes to access OMOP CDM tables
+  - Example tools and code snippets for querying OMOP CDM (e.g., patient counts, cohort definitions)
+  - Fine-grained access controls and auditing for database queries
+  - Documentation and best practices for OMOP CDM analytics in the sandbox
+
+### How to Contribute
+- If you are interested in OMOP CDM or clinical data science, contributions and feedback are welcome!
+- See the WIKI for more details on OMOP CDM and planned features.
