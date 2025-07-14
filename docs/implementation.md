@@ -606,3 +606,187 @@ async def tool_name(param: str) -> Dict[str, Any]:
 ---
 
 *This document provides detailed implementation information. For architecture overview, see [Architecture Overview](architecture.md).* 
+
+# Spinning Up a Sandbox and Connecting to PostgreSQL (OMOP CDM)
+
+This section provides a step-by-step guide for creating a secure Python sandbox, installing the PostgreSQL client, and connecting to a PostgreSQL database (including OMOP CDM use cases) using the OMCP Python Sandbox server.
+
+---
+
+## Prerequisites
+
+- Docker is running on your machine.
+- PostgreSQL is running and accessible (local or remote).
+- The OMCP Python Sandbox server is installed and dependencies are set up (`pip install -r requirements.txt`).
+- Your `.env` or environment variables are set for both the sandbox server and the target database.
+
+---
+
+## 1. Start the OMCP Python Sandbox Server
+
+From your project root, run:
+
+```sh
+python src/omcp_py/main.py
+```
+
+or (if you have a `server_fastmcp.py` entrypoint):
+
+```sh
+python server_fastmcp.py
+```
+
+This will start the MCP server and make the sandbox management tools available.
+
+---
+
+## 2. Create a Sandbox
+
+You can do this via:
+- The MCP Inspector (web UI, if set up)
+- A Python client using the MCP protocol
+- Or, for testing, you can call the tool directly in Python (if running interactively):
+
+**Example using the MCP tool interface:**
+
+```python
+result = await mcp.create_sandbox()
+sandbox_id = result["sandbox_id"]
+print("Sandbox created:", sandbox_id)
+```
+
+This will spin up a new Docker container, isolated and ready for code execution.
+
+---
+
+## 3. Install PostgreSQL Client in the Sandbox
+
+To connect to PostgreSQL from inside the sandbox, you need the `psycopg2-binary` package (or another PostgreSQL client library) installed in the sandbox.
+
+**Install it using the MCP tool:**
+
+```python
+await mcp.install_package(
+    sandbox_id=sandbox_id,
+    package="psycopg2-binary",
+    timeout=60
+)
+```
+
+---
+
+## 4. Execute Code to Connect to PostgreSQL
+
+Now, you can run Python code in the sandbox that connects to your PostgreSQL database. You’ll need to provide the connection details (host, port, user, password, db name).
+
+**Example code to run:**
+
+```python
+code = '''
+import psycopg2
+conn = psycopg2.connect(
+    host="your_db_host",
+    port=5432,
+    user="your_db_user",
+    password="your_db_password",
+    dbname="your_db_name"
+)
+cur = conn.cursor()
+cur.execute("SELECT version();")
+print(cur.fetchone())
+cur.close()
+conn.close()
+'''
+result = await mcp.execute_python_code(
+    sandbox_id=sandbox_id,
+    code=code,
+    timeout=30
+)
+print(result["output"])
+```
+
+**Note:**
+- Replace `"your_db_host"`, `"your_db_user"`, etc. with your actual database credentials.
+- For security, in production you would inject these credentials securely, not hard-code them.
+
+---
+
+## 5. (Optional) Query OMOP CDM Tables
+
+If your PostgreSQL database contains OMOP CDM data, you can now run SQL queries against those tables from within the sandbox, e.g.:
+
+```python
+cur.execute("SELECT COUNT(*) FROM person;")
+print(cur.fetchone())
+```
+
+---
+
+## 6. Clean Up
+
+When done, remove the sandbox:
+
+```python
+await mcp.remove_sandbox(sandbox_id=sandbox_id, force=True)
+```
+
+---
+
+## Summary Table
+
+| Step | Action | Command/Code |
+|------|--------|--------------|
+| 1 | Start server | `python src/omcp_py/main.py` |
+| 2 | Create sandbox | `await mcp.create_sandbox()` |
+| 3 | Install psycopg2 | `await mcp.install_package(..., package="psycopg2-binary")` |
+| 4 | Connect to DB | `await mcp.execute_python_code(..., code=...)` |
+| 5 | Query OMOP CDM | Use SQL in your code |
+| 6 | Remove sandbox | `await mcp.remove_sandbox(...)` |
+
+---
+
+## Security Note
+- In production, never hard-code DB credentials in code. Use environment variables, secrets management, or secure injection mechanisms.
+- Sandboxes are isolated and have no network access by default. You may need to adjust Docker settings if you want to allow outbound DB connections (with caution).
+
+---
+
+## Example: Full Workflow
+
+```python
+# 1. Create a sandbox
+result = await mcp.create_sandbox()
+sandbox_id = result["sandbox_id"]
+
+# 2. Install PostgreSQL client
+await mcp.install_package(sandbox_id=sandbox_id, package="psycopg2-binary", timeout=60)
+
+# 3. Connect and query OMOP CDM
+code = '''
+import psycopg2
+conn = psycopg2.connect(
+    host="localhost",
+    port=5432,
+    user="omop_user",
+    password="omop_pass",
+    dbname="omop_cdm"
+)
+cur = conn.cursor()
+cur.execute("SELECT COUNT(*) FROM person;")
+print(cur.fetchone())
+cur.close()
+conn.close()
+'''
+result = await mcp.execute_python_code(sandbox_id=sandbox_id, code=code, timeout=30)
+print(result["output"])
+
+# 4. Clean up
+await mcp.remove_sandbox(sandbox_id=sandbox_id, force=True)
+```
+
+---
+
+## OMOP CDM Context
+- The OMOP Common Data Model (CDM) is a standardized data model for clinical data.
+- This workflow enables secure, auditable analytics and AI workflows on OMOP CDM data using isolated Python sandboxes.
+- For more on OMOP CDM, see the project wiki and roadmap sections. 
