@@ -300,7 +300,7 @@ async def install_package(sandbox_id: str, package: str, timeout: Optional[int] 
     
     Args:
         sandbox_id: The unique identifier of the sandbox to install the package in
-        package: The package name and version (e.g., "numpy==1.24.0")
+        package: The package name and version (e.g., "numpy==1.24.0" or "pandas numpy")
         timeout: Optional installation timeout in seconds (default: 60)
     
     Returns:
@@ -318,34 +318,31 @@ async def install_package(sandbox_id: str, package: str, timeout: Optional[int] 
                 "error": "Package must be a non-empty string"
             }
         
-        # Use shlex.quote for proper command escaping
-        safe_package = quote(package)
-        
         # Create Python code that will install the package using pip
         # This code runs inside the sandbox container
         code = f"""
 import subprocess
 import sys
 try:
-    # Install the package using pip with timeout and output capture
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', {safe_package}], 
-                         timeout={timeout},
-                         capture_output=True,
-                         text=True)
-    # Print success message as JSON
-    print({{"status": "success", "message": "Package installed successfully"}})
+    # Install the package(s) using pip with timeout and output capture
+    result = subprocess.run([sys.executable, '-m', 'pip', 'install'] + '''{package}'''.split(), 
+                           timeout={timeout},
+                           capture_output=True,
+                           text=True)
+    if result.returncode == 0:
+        print({{"status": "success", "message": "Package(s) installed successfully", "stdout": result.stdout}})
+    else:
+        print({{"status": "error", "message": "Package installation failed", "stderr": result.stderr}})
+        sys.exit(result.returncode)
 except subprocess.TimeoutExpired:
-    # Handle timeout errors
     print({{"status": "error", "message": "Package installation timed out"}})
     sys.exit(1)
-except subprocess.CalledProcessError as e:
-    # Handle installation errors
-    print({{"status": "error", "message": f"Package installation failed: {{e.stderr}}"}})
+except Exception as e:
+    print({{"status": "error", "message": f"Unexpected error: {{str(e)}}"}})
     sys.exit(1)
 """
         # Execute the installation code in the sandbox with enhanced security
         result = sandbox_manager.execute_code(sandbox_id, code)
-        
         
         # Return the installation results
         return {
