@@ -70,6 +70,11 @@ mcp = FastMCP("Python Sandbox")
 sandbox_manager = SandboxManager(config)
 
 @mcp.tool()
+async def ping() -> str:
+    return "pong"
+print("Registered: ping")
+
+@mcp.tool()
 async def create_sandbox(timeout: Optional[int] = 300) -> Dict[str, Any]:
     """
     Create a new Python sandbox environment.
@@ -124,6 +129,7 @@ async def create_sandbox(timeout: Optional[int] = 300) -> Dict[str, Any]:
             "success": False,
             "error": str(e)
         }
+print("Registered: create_sandbox")
 
 @mcp.tool()
 async def list_sandboxes(include_inactive: bool = False) -> Dict[str, Any]:
@@ -175,6 +181,7 @@ async def list_sandboxes(include_inactive: bool = False) -> Dict[str, Any]:
             "success": False,
             "error": str(e)
         }
+print("Registered: list_sandboxes")
 
 @mcp.tool()
 async def remove_sandbox(sandbox_id: str, force: bool = False) -> Dict[str, Any]:
@@ -233,6 +240,7 @@ async def remove_sandbox(sandbox_id: str, force: bool = False) -> Dict[str, Any]
             "success": False,
             "error": str(e)
         }
+print("Registered: remove_sandbox")
 
 @mcp.tool()
 async def execute_python_code(sandbox_id: str, code: str, timeout: Optional[int] = 30) -> Dict[str, Any]:
@@ -288,6 +296,7 @@ async def execute_python_code(sandbox_id: str, code: str, timeout: Optional[int]
             "success": False,
             "error": str(e)
         }
+print("Registered: execute_python_code")
 
 @mcp.tool()
 async def install_package(sandbox_id: str, package: str, timeout: Optional[int] = 60) -> Dict[str, Any]:
@@ -364,6 +373,7 @@ except Exception as e:
             "success": False,
             "error": str(e)
         }
+print("Registered: install_package")
 
 # Main entry point for the FastMCP server
 if __name__ == "__main__":
