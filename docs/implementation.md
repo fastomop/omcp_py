@@ -1,3 +1,49 @@
+# Quickstart: Sandbox + PostgreSQL/OMOP CDM
+
+This quickstart shows how to spin up a secure Python sandbox and connect to a PostgreSQL (OMOP CDM) database using the OMCP Python Sandbox server.
+
+1. **Start the server:**
+   ```sh
+   python src/omcp_py/main.py
+   # or
+   python server_fastmcp.py
+   ```
+
+2. **Create a sandbox:**
+   ```python
+   result = await mcp.create_sandbox()
+   sandbox_id = result["sandbox_id"]
+   ```
+
+3. **Install PostgreSQL client:**
+   ```python
+   await mcp.install_package(sandbox_id=sandbox_id, package="psycopg2-binary", timeout=60)
+   ```
+
+4. **Connect and query OMOP CDM:**
+   ```python
+   code = '''
+   import psycopg2
+   conn = psycopg2.connect(host="localhost", port=5432, user="omop_user", password="omop_pass", dbname="omop_cdm")
+   cur = conn.cursor()
+   cur.execute("SELECT COUNT(*) FROM person;")
+   print(cur.fetchone())
+   cur.close()
+   conn.close()
+   '''
+   result = await mcp.execute_python_code(sandbox_id=sandbox_id, code=code, timeout=30)
+   print(result["output"])
+   ```
+
+5. **Remove the sandbox:**
+   ```python
+   await mcp.remove_sandbox(sandbox_id=sandbox_id, force=True)
+   ```
+
+See the full guide below for more details, security notes, and advanced usage.
+
+---
+
 # Implementation Details
 
 This document provides a deep dive into the implementation details of the OMCP Python Sandbox, including algorithms, data structures, and core functionality.
