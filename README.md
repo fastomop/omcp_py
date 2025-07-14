@@ -346,3 +346,21 @@ DB_NAME=omcp_db
 ### How to Contribute
 - If you are interested in OMOP CDM or clinical data science, contributions and feedback are welcome!
 - See the WIKI for more details on OMOP CDM and planned features.
+
+## Running with FastMCP and MCP Inspector
+
+To launch the server and open the MCP Inspector UI for development and testing, use:
+
+```sh
+.venv/bin/fastmcp dev src/omcp_py/main.py
+```
+
+This will start the server and open the Inspector web UI (usually at http://127.0.0.1:6274).
+
+If you installed FastMCP globally or your environment is set up differently, you may also use:
+
+```sh
+fastmcp dev src/omcp_py/main.py
+```
+
+But if you see 'command not found', always use the full path to the CLI in your virtual environment as above.

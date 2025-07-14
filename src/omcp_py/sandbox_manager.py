@@ -28,10 +28,17 @@ class SandboxManager:
         self.config = config
         self.client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock"))
         self.sandboxes: Dict[str, dict] = {}
-        self._load_sandboxes_from_db()
+        self.db_available = True
+        try:
+            self._load_sandboxes_from_db()
+        except Exception as e:
+            logger.warning(f"Database unavailable, running without persistence: {e}")
+            self.db_available = False
         self._cleanup_old_sandboxes()  # Clean up on startup
 
     def _load_sandboxes_from_db(self):
+        if not self.db_available:
+            return
         session = get_session()
         try:
             db_sandboxes = session.query(DBSandbox).all()
@@ -45,6 +52,8 @@ class SandboxManager:
             session.close()
 
     def _save_sandbox_to_db(self, sandbox_id, created_at, last_used):
+        if not self.db_available:
+            return
         session = get_session()
         try:
             db_sandbox = session.query(DBSandbox).filter_by(id=sandbox_id).first()
@@ -58,6 +67,8 @@ class SandboxManager:
             session.close()
 
     def _remove_sandbox_from_db(self, sandbox_id):
+        if not self.db_available:
+            return
         session = get_session()
         try:
             db_sandbox = session.query(DBSandbox).filter_by(id=sandbox_id).first()
@@ -66,6 +77,16 @@ class SandboxManager:
                 session.commit()
         finally:
             session.close()
+
+    def _cleanup_old_sandboxes(self):
+        # Remove sandboxes that haven't been used within timeout period
+        now = datetime.now()
+        to_remove = []
+        for sandbox_id, sandbox in self.sandboxes.items():
+            if now - sandbox["last_used"] > timedelta(seconds=self.config.sandbox_timeout):
+                to_remove.append(sandbox_id)
+        for sandbox_id in to_remove:
+            self.remove_sandbox(sandbox_id)
 
     def create_sandbox(self) -> str:
         """Create a new isolated Python sandbox container with enhanced security."""

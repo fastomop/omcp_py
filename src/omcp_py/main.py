@@ -43,7 +43,7 @@ import asyncio
 import logging
 import sys
 from typing import Optional, Dict, Any
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from omcp_py.sandbox_manager import SandboxManager
 from omcp_py.config import get_config
 from shlex import quote
