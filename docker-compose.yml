@@ -1,14 +1,17 @@
-version: '3'
-
+version: '3.8'
 services:
-  mcp-python-sandbox:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: omop
+      POSTGRES_USER: omop_user
+      POSTGRES_PASSWORD: omop_pass
     ports:
-      - "8000:8000"
+      - "5432:5432"
     volumes:
-      - node_modules:/app/node_modules
+      - pgdata:/var/lib/postgresql/data
+      # Uncomment the next line and provide a SQL file to initialize with OMOP schema/data
+      # - ./synthetic_omop_dump.sql:/docker-entrypoint-initdb.d/init.sql
 
 volumes:
-  node_modules:
+  pgdata:

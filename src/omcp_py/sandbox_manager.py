@@ -102,7 +102,7 @@ class SandboxManager:
                 command=["sleep", "infinity"],  # Safer than string command
                 detach=True,
                 name=f"omcp-sandbox-{sandbox_id}",
-                network_mode="none",      # No network access for security
+                # network_mode="none",      # Remove network isolation to allow DB access
                 mem_limit="512m",         # Memory limit
                 cpu_period=100000,        # CPU limits
                 cpu_quota=50000,
@@ -115,6 +115,8 @@ class SandboxManager:
                     "/tmp": "rw,noexec,nosuid,size=100M",
                     "/sandbox": "rw,noexec,nosuid,size=500M"
                 }
+                # Optionally, specify network if using a custom one
+                # network="default"
             )
             
             # Track sandbox metadata

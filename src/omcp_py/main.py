@@ -394,6 +394,40 @@ async def query_duckdb(sql: str) -> dict:
         return {"success": False, "error": str(e)}
 print("Registered: query_duckdb")
 
+@mcp.tool()
+async def execute_sql_in_sandbox(sandbox_id: str, sql: str) -> dict:
+    """
+    Execute a SQL query against the OMOP Postgres database from within the sandbox.
+    Args:
+        sandbox_id: The sandbox to execute in.
+        sql: The SQL query to run.
+    Returns:
+        Dict with 'output' and 'exit_code' or 'error'.
+    """
+    code = f'''
+import psycopg2
+import sys
+try:
+    conn = psycopg2.connect(
+        dbname="omop",
+        user="omop_user",
+        password="omop_pass",
+        host="db",
+        port=5432
+    )
+    cur = conn.cursor()
+    cur.execute({sql!r})
+    rows = cur.fetchall()
+    print(rows)
+    conn.close()
+except Exception as e:
+    print(f"ERROR: {str(e)}")
+    sys.exit(1)
+'''
+    result = sandbox_manager.execute_code(sandbox_id, code)
+    return {"output": result.output.decode(), "exit_code": result.exit_code}
+print("Registered: execute_sql_in_sandbox")
+
 # Main entry point for the FastMCP server
 if __name__ == "__main__":
     # Log that the server is starting
