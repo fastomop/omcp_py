@@ -48,6 +48,7 @@ from omcp_py.sandbox_manager import SandboxManager
 from omcp_py.config import get_config
 from shlex import quote
 import requests
+import duckdb
 
 # Load configuration from environment variables
 config = get_config()
@@ -374,6 +375,24 @@ except Exception as e:
             "error": str(e)
         }
 print("Registered: install_package")
+
+@mcp.tool()
+async def query_duckdb(sql: str) -> dict:
+    """
+    Run a SQL query against the DuckDB file and return the results.
+    Args:
+        sql: The SQL query to run.
+    Returns:
+        Dict with 'success', 'columns', 'result', and 'error' keys.
+    """
+    try:
+        con = duckdb.connect('synthetic_data/synthea.duckdb')
+        result = con.execute(sql).fetchall()
+        columns = [desc[0] for desc in con.description]
+        return {"success": True, "columns": columns, "result": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+print("Registered: query_duckdb")
 
 # Main entry point for the FastMCP server
 if __name__ == "__main__":
