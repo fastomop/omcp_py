@@ -17,6 +17,10 @@ Key Features:
 - remove_sandbox: Safely remove sandboxes with force option
 - execute_python_code: Run Python code in isolated containers
 - install_package: Install Python packages in sandboxes
+- create_omop_schema: Create OMOP CDM schema in PostgreSQL
+- load_synthea_to_postgres: Load Synthea CSV files into OMOP database
+- analyze_omop_data: Perform analytics on OMOP data
+- llm_dataframe_operation: LLM-friendly dataframe operations
 
 Security Features:
 - Network isolation (containers run with network_mode="none")
@@ -421,12 +425,287 @@ try:
     print(rows)
     conn.close()
 except Exception as e:
-    print(f"ERROR: {str(e)}")
+    print(f"ERROR: {{str(e)}}")
     sys.exit(1)
 '''
     result = sandbox_manager.execute_code(sandbox_id, code)
     return {"output": result.output.decode(), "exit_code": result.exit_code}
 print("Registered: execute_sql_in_sandbox")
+
+@mcp.tool()
+async def create_omop_schema(sandbox_id: str) -> dict:
+    """
+    Create OMOP CDM schema in PostgreSQL database from within the sandbox.
+    Args:
+        sandbox_id: The sandbox to execute in.
+    Returns:
+        Dict with 'output' and 'exit_code' or 'error'.
+    """
+    code = '''
+import psycopg2
+import sys
+
+try:
+    conn = psycopg2.connect(
+        dbname="omop",
+        user="omop_user",
+        password="omop_pass",
+        host="db",
+        port=5432
+    )
+    cur = conn.cursor()
+    
+    # Create OMOP schema
+    cur.execute("CREATE SCHEMA IF NOT EXISTS omop_cdm;")
+    
+    # Create basic OMOP tables
+    person_sql = "CREATE TABLE IF NOT EXISTS omop_cdm.person (person_id BIGINT PRIMARY KEY, gender_concept_id INTEGER, year_of_birth INTEGER, month_of_birth INTEGER, day_of_birth INTEGER, birth_datetime TIMESTAMP, death_datetime TIMESTAMP, race_concept_id INTEGER, ethnicity_concept_id INTEGER, person_source_value VARCHAR(50), gender_source_value VARCHAR(50));"
+    
+    visit_sql = "CREATE TABLE IF NOT EXISTS omop_cdm.visit_occurrence (visit_occurrence_id BIGINT PRIMARY KEY, person_id BIGINT, visit_concept_id INTEGER, visit_start_datetime TIMESTAMP, visit_end_datetime TIMESTAMP, visit_type_concept_id INTEGER);"
+    
+    condition_sql = "CREATE TABLE IF NOT EXISTS omop_cdm.condition_occurrence (condition_occurrence_id BIGINT PRIMARY KEY, person_id BIGINT, condition_concept_id INTEGER, condition_start_datetime TIMESTAMP, condition_end_datetime TIMESTAMP, condition_type_concept_id INTEGER);"
+    
+    tables = {
+        'person': person_sql,
+        'visit_occurrence': visit_sql,
+        'condition_occurrence': condition_sql
+    }
+    
+    for table_name, create_sql in tables.items():
+        cur.execute(create_sql)
+        print(f"Created table: {table_name}")
+    
+    conn.commit()
+    conn.close()
+    print("OMOP schema created successfully!")
+    
+except Exception as e:
+    print(f"ERROR: {str(e)}")
+    sys.exit(1)
+'''
+    result = sandbox_manager.execute_code(sandbox_id, code)
+    return {"output": result.output.decode(), "exit_code": result.exit_code}
+print("Registered: create_omop_schema")
+
+@mcp.tool()
+async def load_synthea_to_postgres(sandbox_id: str, csv_directory: str = "synthetic_data") -> dict:
+    """
+    Load Synthea CSV files into PostgreSQL OMOP database from within the sandbox.
+    Args:
+        sandbox_id: The sandbox to execute in.
+        csv_directory: Directory containing Synthea CSV files.
+    Returns:
+        Dict with 'output' and 'exit_code' or 'error'.
+    """
+    code = f'''
+import pandas as pd
+import psycopg2
+import os
+import sys
+from sqlalchemy import create_engine, text
+
+try:
+    # Connect to PostgreSQL
+    engine = create_engine('postgresql://omop_user:omop_pass@db:5432/omop')
+    
+    # Define Synthea to OMOP mappings
+    synthea_mappings = {{
+        'patients.csv': {{
+            'table': 'omop_cdm.person',
+            'columns': {{
+                'Id': 'person_id',
+                'BIRTHDATE': 'birth_datetime',
+                'DEATHDATE': 'death_datetime',
+                'GENDER': 'gender_concept_id',
+                'RACE': 'race_concept_id',
+                'ETHNICITY': 'ethnicity_concept_id'
+            }}
+        }},
+        'encounters.csv': {{
+            'table': 'omop_cdm.visit_occurrence',
+            'columns': {{
+                'Id': 'visit_occurrence_id',
+                'START': 'visit_start_datetime',
+                'STOP': 'visit_end_datetime',
+                'PATIENT': 'person_id',
+                'ENCOUNTERCLASS': 'visit_concept_id'
+            }}
+        }},
+        'conditions.csv': {{
+            'table': 'omop_cdm.condition_occurrence',
+            'columns': {{
+                'START': 'condition_start_datetime',
+                'STOP': 'condition_end_datetime',
+                'PATIENT': 'person_id',
+                'CODE': 'condition_concept_id'
+            }}
+        }}
+    }}
+    
+    # Process each CSV file
+    for filename, mapping in synthea_mappings.items():
+        filepath = os.path.join('{csv_directory}', filename)
+        if os.path.exists(filepath):
+            print(f"Processing {{filename}}...")
+            
+            # Read CSV
+            df = pd.read_csv(filepath)
+            
+            # Rename columns according to mapping
+            df = df.rename(columns=mapping['columns'])
+            
+            # Add required OMOP columns with defaults
+            if mapping['table'] == 'omop_cdm.person':
+                df['person_source_value'] = df['person_id'].astype(str)
+                df['gender_source_value'] = df['gender_concept_id']
+            
+            # Load to PostgreSQL
+            df.to_sql(mapping['table'].split('.')[-1], engine, schema='omop_cdm', if_exists='append', index=False, method='multi')
+            print(f"Loaded {{len(df)}} rows into {{mapping['table']}}")
+        else:
+            print(f"File not found: {{filepath}}")
+    
+    print("Synthea data loading completed successfully!")
+    
+except Exception as e:
+    print(f"ERROR: {{str(e)}}")
+    sys.exit(1)
+'''
+    result = sandbox_manager.execute_code(sandbox_id, code)
+    return {"output": result.output.decode(), "exit_code": result.exit_code}
+print("Registered: load_synthea_to_postgres")
+
+@mcp.tool()
+async def analyze_omop_data(sandbox_id: str, analysis_type: str = "basic") -> dict:
+    """
+    Perform analytics on OMOP data using pandas and LLM-friendly output.
+    Args:
+        sandbox_id: The sandbox to execute in.
+        analysis_type: Type of analysis ('basic', 'demographics', 'conditions').
+    Returns:
+        Dict with 'output' and 'exit_code' or 'error'.
+    """
+    code = f'''
+import pandas as pd
+import psycopg2
+import sys
+import json
+from sqlalchemy import create_engine
+
+try:
+    engine = create_engine('postgresql://omop_user:omop_pass@db:5432/omop')
+    
+    if '{analysis_type}' == 'basic':
+        # Basic counts
+        queries = {{
+            'total_patients': 'SELECT COUNT(*) as count FROM omop_cdm.person',
+            'total_visits': 'SELECT COUNT(*) as count FROM omop_cdm.visit_occurrence',
+            'total_conditions': 'SELECT COUNT(*) as count FROM omop_cdm.condition_occurrence'
+        }}
+        
+        results = {{}}
+        for name, query in queries.items():
+            df = pd.read_sql(query, engine)
+            results[name] = int(df['count'].iloc[0])
+        
+        print(json.dumps(results))
+        
+    elif '{analysis_type}' == 'demographics':
+        # Demographics analysis
+        query = "SELECT gender_concept_id, COUNT(*) as patient_count, AVG(EXTRACT(YEAR FROM AGE(birth_datetime))) as avg_age FROM omop_cdm.person WHERE birth_datetime IS NOT NULL GROUP BY gender_concept_id"
+        df = pd.read_sql(query, engine)
+        print(json.dumps(df.to_dict('records')))
+        
+    elif '{analysis_type}' == 'conditions':
+        # Condition prevalence
+        query = "SELECT condition_concept_id, COUNT(*) as occurrence_count, COUNT(DISTINCT person_id) as patient_count FROM omop_cdm.condition_occurrence GROUP BY condition_concept_id ORDER BY occurrence_count DESC LIMIT 10"
+        df = pd.read_sql(query, engine)
+        print(json.dumps(df.to_dict('records')))
+    
+except Exception as e:
+    print(f"ERROR: {{str(e)}}")
+    sys.exit(1)
+'''
+    result = sandbox_manager.execute_code(sandbox_id, code)
+    return {"output": result.output.decode(), "exit_code": result.exit_code}
+print("Registered: analyze_omop_data")
+
+@mcp.tool()
+async def llm_dataframe_operation(sandbox_id: str, operation: str, table_name: str = "person") -> dict:
+    """
+    Perform LLM-friendly dataframe operations on OMOP data.
+    Args:
+        sandbox_id: The sandbox to execute in.
+        operation: Natural language description of the operation.
+        table_name: Target OMOP table.
+    Returns:
+        Dict with 'output' and 'exit_code' or 'error'.
+    """
+    code = f'''
+import pandas as pd
+import sys
+import json
+from sqlalchemy import create_engine
+
+try:
+    engine = create_engine('postgresql://omop_user:omop_pass@db:5432/omop')
+    
+    # Load the specified table
+    df = pd.read_sql(f"SELECT * FROM omop_cdm.{{table_name}}", engine)
+    
+    # Parse operation and execute
+    operation = "{operation}".lower()
+    
+    if "count" in operation:
+        if "total" in operation or "all" in operation:
+            result = {{"total_count": len(df)}}
+        elif "unique" in operation:
+            # Find column to count unique values for
+            if "person" in operation:
+                result = {{"unique_patients": df['person_id'].nunique()}}
+            elif "condition" in operation:
+                result = {{"unique_conditions": df['condition_concept_id'].nunique()}}
+            else:
+                result = {{"unique_count": len(df)}}
+        else:
+            result = {{"count": len(df)}}
+    
+    elif "age" in operation:
+        if "birth_datetime" in df.columns:
+            df['age'] = pd.Timestamp.now().year - pd.to_datetime(df['birth_datetime']).dt.year
+            if "average" in operation or "mean" in operation:
+                result = {{"average_age": float(df['age'].mean())}}
+            elif "distribution" in operation:
+                result = {{"age_distribution": df['age'].value_counts().to_dict()}}
+            else:
+                result = {{"age_stats": {{"min": float(df['age'].min()), "max": float(df['age'].max()), "mean": float(df['age'].mean())}}}}
+        else:
+            result = {{"error": "No birth_datetime column available"}}
+    
+    elif "gender" in operation:
+        if "gender_concept_id" in df.columns:
+            result = {{"gender_distribution": df['gender_concept_id'].value_counts().to_dict()}}
+        else:
+            result = {{"error": "No gender_concept_id column available"}}
+    
+    else:
+        # Default: return basic info
+        result = {{
+            "table": "{table_name}",
+            "total_rows": len(df),
+            "columns": list(df.columns),
+            "sample_data": df.head(3).to_dict('records')
+        }}
+    
+    print(json.dumps(result))
+    
+except Exception as e:
+    print(f"ERROR: {{str(e)}}")
+    sys.exit(1)
+'''
+    result = sandbox_manager.execute_code(sandbox_id, code)
+    return {"output": result.output.decode(), "exit_code": result.exit_code}
+print("Registered: llm_dataframe_operation")
 
 # Main entry point for the FastMCP server
 if __name__ == "__main__":

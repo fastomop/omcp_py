@@ -10,8 +10,8 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Uncomment the next line and provide a SQL file to initialize with OMOP schema/data
-      # - ./synthetic_omop_dump.sql:/docker-entrypoint-initdb.d/init.sql
+      # Mount Synthea data directory
+      - ./synthetic_data:/synthetic_data:ro
 
 volumes:
   pgdata:
