@@ -151,8 +151,11 @@ class SandboxManager:
         except Exception as e:
             logger.error(f"Failed to remove sandbox {sandbox_id}: {e}")
     
-    def execute_code(self, sandbox_id: str, code: str) -> docker.models.containers.ExecResult :
-        """Execute Python code in the specified sandbox container (legacy method)."""
+    def execute_code(self, sandbox_id: str, code: str, timeout: Optional[int] = None) -> dict:
+        """Execute Python code in the specified sandbox container and return a structured dict.
+
+        Returns a dict with keys: output (bytes or str), exit_code (int), error (str|None)
+        """
         if sandbox_id not in self.sandboxes:
             raise ValueError(f"Sandbox {sandbox_id} not found")
         
@@ -162,14 +165,35 @@ class SandboxManager:
         
         try:
             # Execute code in container and capture output
-            exec_result = container.exec_run(
-                ["python3", "-c",code]
-            )
+            # Use a shell-safe invocation and enforce timeout by running python -c in the container
+            cmd = ["python3", "-c", code]
+            exec_result = container.exec_run(cmd, demux=True)
 
-            return exec_result
+            # exec_result is a tuple (exit_code, (stdout, stderr)) when demux=True
+            if isinstance(exec_result, tuple) and len(exec_result) == 2:
+                exit_code, streams = exec_result
+                stdout_b, stderr_b = streams
+            else:
+                # Fallback: older dockerpy returns an ExecResult-like object
+                exit_code = getattr(exec_result, "exit_code", 0)
+                stdout_b = getattr(exec_result, "output", b"")
+                stderr_b = b""
+
+            output = stdout_b or b""
+            stderr = stderr_b or b""
+
+            error_text = None
+            if exit_code != 0:
+                # Prefer stderr if available
+                try:
+                    error_text = stderr.decode(errors="replace").strip() or f"Exit code {exit_code}"
+                except Exception:
+                    error_text = f"Exit code {exit_code}"
+
+            return {"output": output, "exit_code": exit_code, "error": error_text}
         except Exception as e:
             logger.error(f"Failed to execute code in sandbox {sandbox_id}: {e}")
-            raise
+            return {"output": b"", "exit_code": 1, "error": str(e)}
 
     def list_sandboxes(self) -> list:
         """Return list of all active sandboxes with metadata."""

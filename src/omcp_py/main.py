@@ -248,7 +248,7 @@ async def remove_sandbox(sandbox_id: str, force: bool = False) -> Dict[str, Any]
 print("Registered: remove_sandbox")
 
 @mcp.tool()
-async def execute_python_code(sandbox_id: str, code: str, timeout: Optional[int] = 30) -> Dict[str, Any]:
+async def execute_python_code(sandbox_id: str, python_code: Optional[str] = None, code: Optional[str] = None, timeout: Optional[int] = 30) -> Dict[str, Any]:
     """
     Execute Python code in a secure sandbox environment.
     
@@ -269,22 +269,35 @@ async def execute_python_code(sandbox_id: str, code: str, timeout: Optional[int]
         - exit_code: The exit code from the Python process
     """
     try:
-        # Validate that the code input is valid
-        if not isinstance(code, str) or not code.strip():
-            return {
-                "success": False,
-                "error": "Code must be a non-empty string"
-            }
-        
+        # Accept either 'python_code' or legacy 'code'
+        code_text = python_code if python_code is not None else code
 
-        
+        # Validate that the code input is valid
+        if not isinstance(code_text, str) or not code_text.strip():
+            return {"success": False, "error": "Code must be a non-empty string"}
+
         # Execute the code in the specified sandbox with enhanced security
-        result = sandbox_manager.execute_code(sandbox_id, code)
-        print(result)
-        # Return the execution results
+        exec_result = sandbox_manager.execute_code(sandbox_id, code_text, timeout=timeout)
+
+        # exec_result is expected to be a dict with keys: output (bytes or str), exit_code (int), error (str|None)
+        output_raw = exec_result.get("output")
+        exit_code = exec_result.get("exit_code")
+        error = exec_result.get("error")
+
+        # Normalize output to string
+        if isinstance(output_raw, (bytes, bytearray)):
+            try:
+                output_text = output_raw.decode(errors="replace")
+            except Exception:
+                output_text = str(output_raw)
+        else:
+            output_text = "" if output_raw is None else str(output_raw)
+
         return {
-            "output": result.output.decode(),
-            "exit_code": result.exit_code
+            "success": (exit_code == 0),
+            "output": output_text,
+            "error": error,
+            "exit_code": exit_code,
         }
     except requests.exceptions.ReadTimeout:
         # Handle timeout specifically
