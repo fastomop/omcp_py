@@ -38,6 +38,22 @@ A secure, Docker-based Python sandbox server using the Model Context Protocol (M
 - **Docker & Docker Compose**
 - **Synthea CSV files** (optional, for healthcare data processing)
 
+## Using UV for environment management
+
+This project is configured to use `uv` for environment management. `uv` creates and manages Python virtual environments and can install the dependencies declared in `pyproject.toml` under `tool.uv`.
+
+Quick start using `uv`:
+
+```bash
+# Install uv (see https://astral.sh/uv for instructions)
+# Then create a uv-managed venv and install dependencies:
+scripts/setup_uv.sh
+source .venv/bin/activate
+```
+
+If you prefer not to use `uv`, you can still create a regular venv and install the packages listed in `pyproject.toml` or `requirements.txt`.
+
+
 ## 🚀 Quick Start
 
 ### 1. Clone and Setup
@@ -263,7 +279,7 @@ code = '''
 import pandas as pd
 from sqlalchemy import create_engine
 
-engine = create_engine('postgresql://omop_user:omop_pass@db:5432/omop')
+engine = create_engine('postgresql://omcp:postgres@db:5432/omcp')
 df = pd.read_sql("SELECT * FROM omop_cdm.person", engine)
 
 # Your custom analysis here
@@ -305,4 +321,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**Built with ❤️ for secure healthcare data analytics**
+Built by Zhangshu and the wider FastOMCP team  

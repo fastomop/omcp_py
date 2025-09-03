@@ -271,3 +271,10 @@ Create custom analytics by modifying the `analyze_omop_data` tool or using `exec
 3. **Integration**: Connect with external healthcare systems
 4. **Monitoring**: Add comprehensive logging and monitoring
 5. **Testing**: Implement automated testing for data quality and pipeline integrity 
+
+## Recent changes (2025-09-03)
+
+Developer-focused updates:
+
+- Database settings are now centralized in `src/omcp_py/config.py` and controlled via environment variables (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`). Update your `.env` for local runs.
+- For quick local testing, an imported Postgres filesystem tar is included under `docker/images/postgres.tar` and referenced as `fastomop/postgres:from-tar` in `docker-compose.yml`. This is convenient for development but not recommended for production.

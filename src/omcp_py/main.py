@@ -426,11 +426,11 @@ import psycopg2
 import sys
 try:
     conn = psycopg2.connect(
-        dbname="omop",
-        user="omop_user",
-        password="omop_pass",
-        host="db",
-        port=5432
+        dbname="{config.db_name}",
+        user="{config.db_user}",
+        password="{config.db_password}",
+        host="{config.db_host}",
+        port={config.db_port}
     )
     cur = conn.cursor()
     cur.execute({sql!r})
@@ -460,11 +460,11 @@ import sys
 
 try:
     conn = psycopg2.connect(
-        dbname="omop",
-        user="omop_user",
-        password="omop_pass",
-        host="db",
-        port=5432
+        dbname="%s",
+        user="%s",
+        password="%s",
+        host="%s",
+        port=%s
     )
     cur = conn.cursor()
     
@@ -519,7 +519,7 @@ from sqlalchemy import create_engine, text
 
 try:
     # Connect to PostgreSQL
-    engine = create_engine('postgresql://omop_user:omop_pass@db:5432/omop')
+    engine = create_engine('postgresql://{config.db_user}:{config.db_password}@{config.db_host}:{config.db_port}/{config.db_name}')
     
     # Define Synthea to OMOP mappings
     synthea_mappings = {{
@@ -606,7 +606,7 @@ import json
 from sqlalchemy import create_engine
 
 try:
-    engine = create_engine('postgresql://omop_user:omop_pass@db:5432/omop')
+    engine = create_engine(f"postgresql://{config.db_user}:{config.db_password}@{config.db_host}:{config.db_port}/{config.db_name}")
     
     if '{analysis_type}' == 'basic':
         # Basic counts
@@ -661,7 +661,7 @@ import json
 from sqlalchemy import create_engine
 
 try:
-    engine = create_engine('postgresql://omop_user:omop_pass@db:5432/omop')
+    engine = create_engine(f"postgresql://{config.db_user}:{config.db_password}@{config.db_host}:{config.db_port}/{config.db_name}")
     
     # Load the specified table
     df = pd.read_sql(f"SELECT * FROM omop_cdm.{{table_name}}", engine)

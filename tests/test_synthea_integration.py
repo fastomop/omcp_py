@@ -77,22 +77,31 @@ def test_docker_compose():
     print("\n🐳 Testing Docker Compose")
     print("=" * 30)
     
+    from typing import TYPE_CHECKING
+
+    import importlib
+
     try:
-        import yaml
+        yaml = importlib.import_module('yaml')
+    except Exception:
+        print("⚠️ PyYAML not installed; skipping docker-compose validation")
+        return False
+
+    try:
         with open('docker-compose.yml', 'r') as f:
             config = yaml.safe_load(f)
         
         if 'services' in config and 'db' in config['services']:
             print("✅ Docker Compose configuration valid")
             print(f"✅ PostgreSQL service configured")
-            print(f"✅ Database: {config['services']['db']['environment'].get('POSTGRES_DB', 'omop')}")
-            print(f"✅ User: {config['services']['db']['environment'].get('POSTGRES_USER', 'omop_user')}")
+            print(f"✅ Database: {config['services']['db']['environment'].get('POSTGRES_DB', 'omcp')}")
+            print(f"✅ User: {config['services']['db']['environment'].get('POSTGRES_USER', 'omcp')}")
             return True
         else:
             print("❌ Invalid Docker Compose configuration")
             return False
     except Exception as e:
-        print(f"❌ Error reading Docker Compose: {e}")
+        print("❌ Error reading Docker Compose:", e)
         return False
 
 def main():

@@ -1,3 +1,15 @@
+## Recent changes (2025-09-03)
+
+The project has received a set of practical updates to improve local development and Docker-based workflows:
+
+- The repository includes an imported Postgres filesystem tar that was imported as a local Docker image named `fastomop/postgres:from-tar` (created via `docker import`). This image can be used as a quick local DB for development; see `docker-compose.yml` for integration.
+- Configuration values for the database have been centralized in `src/omcp_py/config.py`. The server now reads `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` from environment variables (or `.env`) and uses them to construct connection strings at runtime.
+- The MCP tool code in `src/omcp_py/main.py` was updated to use `config` values instead of hardcoded database credentials, making deployments and local testing consistent with environment settings.
+- `docker-compose.yml` was updated to reference `fastomop/postgres:from-tar` and to use default credentials `DB_USER=omcp` / `DB_PASSWORD=postgres` / `DB_NAME=omcp`. These defaults are intended for local development only.
+- Small developer conveniences were added: `.env` defaults were updated, and a short test harness and in-process execution utility were added to help run quick Python snippets without Docker during development.
+
+Note: The imported tar is a filesystem export (created via `docker import`) rather than a `docker save` archive; it may not include a standard Postgres entrypoint in all cases. Prefer building or pulling an official Postgres image for reproducible deployments.
+
 # API Reference - OMCP Python Sandbox Server
 
 ## Overview

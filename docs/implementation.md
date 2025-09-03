@@ -836,3 +836,10 @@ await mcp.remove_sandbox(sandbox_id=sandbox_id, force=True)
 - The OMOP Common Data Model (CDM) is a standardized data model for clinical data.
 - This workflow enables secure, auditable analytics and AI workflows on OMOP CDM data using isolated Python sandboxes.
 - For more on OMOP CDM, see the project wiki and roadmap sections. 
+
+## Recent changes (2025-09-03)
+
+The project has small developer-oriented updates:
+
+- Database connection configuration is now centralized in `src/omcp_py/config.py` and sourced from environment variables (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`). Update `.env` or set those environment variables for your local setup.
+- A developer convenience Postgres filesystem tar is included (`docker/images/postgres.tar`) and referenced as `fastomop/postgres:from-tar` in `docker-compose.yml` for quick local DB usage. This is intended for development and may lack a standard entrypoint; use the official Postgres image for production.

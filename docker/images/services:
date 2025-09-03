@@ -1,0 +1,14 @@
+services:
+  db:
+    image: fastomop/postgres:from-tar
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: omcp
+      POSTGRES_DB: omcp
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+volumes:
+  db-data:

@@ -1,11 +1,11 @@
 version: '3.8'
 services:
   db:
-    image: postgres:15
+    image: fastomop/postgres:from-tar
     environment:
-      POSTGRES_DB: omop
-      POSTGRES_USER: omop_user
-      POSTGRES_PASSWORD: omop_pass
+      POSTGRES_DB: omcp
+      POSTGRES_USER: omcp
+      POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
     volumes:

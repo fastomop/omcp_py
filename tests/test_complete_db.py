@@ -50,19 +50,25 @@ print("Package installation: SUCCESS")
     result = container.exec_run(["python3", "-c", install_code])
     print("Install result:", result.output.decode())
     
+    db_user = config.db_user
+    db_pass = config.db_password
+    db_name = config.db_name
+    db_host = 'db'
+    db_port = config.db_port
+
     # Test database connection
-    db_code = """
+    db_code = f"""
 import sys
 sys.path.insert(0, "/sandbox/packages")
 import psycopg2
 
 try:
     conn = psycopg2.connect(
-        dbname="omop",
-        user="omop_user",
-        password="omop_pass",
-        host="db",
-        port=5432
+        dbname={db_name!r},
+        user={db_user!r},
+        password={db_pass!r},
+        host={db_host!r},
+        port={db_port!r}
     )
     cur = conn.cursor()
     cur.execute("SELECT version()")
@@ -70,8 +76,8 @@ try:
     print("PostgreSQL version:", cur.fetchone())
     cur.close()
     conn.close()
-except Exception as e:
-    print(f"Database connection failed: {e}")
+    except Exception as e:
+        print("Database connection failed:", e)
 """
     
     result = container.exec_run(["python3", "-c", db_code])

@@ -37,10 +37,11 @@ def get_config() -> SandboxConfig:
         docker_image=os.getenv("DOCKER_IMAGE", "python:3.11-slim"),
         sandbox_base_url=os.getenv("SANDBOX_BASE_URL"),
         debug=os.getenv("DEBUG", "false").lower() == "true",
-        log_level=os.getenv("LOG_LEVEL", "INFO"),
-        db_host=os.getenv("DB_HOST", "localhost"),
-        db_port=int(os.getenv("DB_PORT", "5432")),
-        db_user=os.getenv("DB_USER", "omcp_user"),
-        db_password=os.getenv("DB_PASSWORD", "omcp_pass"),
-        db_name=os.getenv("DB_NAME", "omcp_db")
+    log_level=os.getenv("LOG_LEVEL", "INFO"),
+    # Defaults chosen to match the included docker image/service configuration
+    db_host=os.getenv("DB_HOST", "db"),
+    db_port=int(os.getenv("DB_PORT", "5432")),
+    db_user=os.getenv("DB_USER", "omcp"),
+    db_password=os.getenv("DB_PASSWORD", "postgres"),
+    db_name=os.getenv("DB_NAME", "omcp")
     )
