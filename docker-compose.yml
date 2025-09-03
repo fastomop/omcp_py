@@ -1,14 +1,17 @@
-version: '3'
-
+version: '3.8'
 services:
-  mcp-python-sandbox:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  db:
+    image: fastomop/postgres:from-tar
+    environment:
+      POSTGRES_DB: omcp
+      POSTGRES_USER: omcp
+      POSTGRES_PASSWORD: postgres
     ports:
-      - "8000:8000"
+      - "5432:5432"
     volumes:
-      - node_modules:/app/node_modules
+      - pgdata:/var/lib/postgresql/data
+      # Mount Synthea data directory
+      - ./synthetic_data:/synthetic_data:ro
 
 volumes:
-  node_modules:
+  pgdata:

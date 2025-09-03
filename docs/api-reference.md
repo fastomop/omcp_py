@@ -1,525 +1,684 @@
-# API Reference
+## Recent changes (2025-09-03)
 
-This document provides comprehensive API documentation for all MCP tools available in the OMCP Python Sandbox.
+The project has received a set of practical updates to improve local development and Docker-based workflows:
 
-## 📋 API Overview
+- The repository includes an imported Postgres filesystem tar that was imported as a local Docker image named `fastomop/postgres:from-tar` (created via `docker import`). This image can be used as a quick local DB for development; see `docker-compose.yml` for integration.
+- Configuration values for the database have been centralized in `src/omcp_py/config.py`. The server now reads `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` from environment variables (or `.env`) and uses them to construct connection strings at runtime.
+- The MCP tool code in `src/omcp_py/main.py` was updated to use `config` values instead of hardcoded database credentials, making deployments and local testing consistent with environment settings.
+- `docker-compose.yml` was updated to reference `fastomop/postgres:from-tar` and to use default credentials `DB_USER=omcp` / `DB_PASSWORD=postgres` / `DB_NAME=omcp`. These defaults are intended for local development only.
+- Small developer conveniences were added: `.env` defaults were updated, and a short test harness and in-process execution utility were added to help run quick Python snippets without Docker during development.
 
-The OMCP Python Sandbox exposes 5 MCP tools for secure Python code execution:
+Note: The imported tar is a filesystem export (created via `docker import`) rather than a `docker save` archive; it may not include a standard Postgres entrypoint in all cases. Prefer building or pulling an official Postgres image for reproducible deployments.
 
-1. **`create_sandbox`** - Create new isolated Python environments
-2. **`list_sandboxes`** - List and manage active sandboxes
-3. **`remove_sandbox`** - Safely remove sandboxes with force option
-4. **`execute_python_code`** - Run Python code in isolated containers
-5. **`install_package`** - Install Python packages in sandboxes
+# API Reference - OMCP Python Sandbox Server
 
-## 🔧 Tool Specifications
+## Overview
 
-### 1. `create_sandbox`
+This document provides a complete reference for all MCP tools available in the OMCP Python Sandbox Server. Each tool is documented with its parameters, return values, examples, and error handling.
+
+## Tool Categories
+
+- [Core Sandbox Management](#core-sandbox-management)
+- [Healthcare Data Tools](#healthcare-data-tools)
+- [Legacy Tools](#legacy-tools)
+
+---
+
+## Core Sandbox Management
+
+### `create_sandbox`
 
 Creates a new isolated Python sandbox environment.
 
-#### Parameters
+**Parameters:**
+- `timeout` (optional, int): Sandbox timeout in seconds (default: 300)
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `timeout` | `Optional[int]` | No | `300` | Sandbox timeout in seconds |
-
-#### Returns
-
+**Returns:**
 ```json
 {
-    "success": true,
-    "sandbox_id": "uuid-string",
-    "created_at": "2024-01-01T12:00:00",
-    "last_used": "2024-01-01T12:00:00"
+  "success": true,
+  "sandbox_id": "uuid-string",
+  "created_at": "2024-01-01T12:00:00",
+  "last_used": "2024-01-01T12:00:00"
 }
 ```
 
-#### Error Response
-
+**Error Response:**
 ```json
 {
-    "success": false,
-    "error": "Error message describing the failure"
+  "success": false,
+  "error": "Maximum number of sandboxes reached"
 }
 ```
 
-#### Example Usage
-
+**Example:**
 ```python
-# Create a new sandbox with default timeout
+# Create sandbox with default timeout
 result = await mcp.create_sandbox()
 
-# Create a new sandbox with custom timeout
+# Create sandbox with custom timeout
 result = await mcp.create_sandbox(timeout=600)
 ```
 
-#### Implementation Details
+---
 
-- **Container Creation**: Creates a new Docker container with enhanced security
-- **Security Features**: Network isolation, resource limits, read-only filesystem
-- **ID Generation**: Generates unique UUID for sandbox identification
-- **Metadata Tracking**: Tracks creation time and last usage time
-- **Capacity Limits**: Enforces maximum sandbox count configuration
-
-### 2. `list_sandboxes`
+### `list_sandboxes`
 
 Lists all active Python sandboxes.
 
-#### Parameters
+**Parameters:**
+- `include_inactive` (optional, bool): Include inactive sandboxes (default: false)
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `include_inactive` | `bool` | No | `false` | Whether to include inactive sandboxes |
-
-#### Returns
-
+**Returns:**
 ```json
 {
-    "success": true,
-    "sandboxes": [
-        {
-            "id": "uuid-string",
-            "created_at": "2024-01-01T12:00:00",
-            "last_used": "2024-01-01T12:00:00"
-        }
-    ],
-    "count": 1
+  "success": true,
+  "sandboxes": [
+    {
+      "id": "uuid-string",
+      "created_at": "2024-01-01T12:00:00",
+      "last_used": "2024-01-01T12:00:00"
+    }
+  ],
+  "count": 1
 }
 ```
 
-#### Error Response
-
-```json
-{
-    "success": false,
-    "error": "Error message describing the failure"
-}
-```
-
-#### Example Usage
-
+**Example:**
 ```python
-# List only active sandboxes
+# List active sandboxes only
 result = await mcp.list_sandboxes()
 
-# List all sandboxes including inactive ones
+# List all sandboxes including inactive
 result = await mcp.list_sandboxes(include_inactive=true)
 ```
 
-#### Implementation Details
+---
 
-- **Active Filtering**: Filters out inactive sandboxes based on timeout configuration
-- **Timeout Calculation**: Uses `SANDBOX_TIMEOUT` environment variable
-- **Metadata Retrieval**: Returns creation and last usage timestamps
-- **Count Tracking**: Provides count of sandboxes in the list
+### `remove_sandbox`
 
-### 3. `remove_sandbox`
+Removes a Python sandbox container.
 
-Removes a Python sandbox.
+**Parameters:**
+- `sandbox_id` (required, string): The unique identifier of the sandbox
+- `force` (optional, bool): Force removal of active sandboxes (default: false)
 
-#### Parameters
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `sandbox_id` | `str` | Yes | - | The unique identifier of the sandbox to remove |
-| `force` | `bool` | No | `false` | Whether to force removal of active sandboxes |
-
-#### Returns
-
+**Returns:**
 ```json
 {
-    "success": true,
-    "message": "Sandbox uuid-string removed successfully"
+  "success": true,
+  "message": "Sandbox uuid-string removed successfully"
 }
 ```
 
-#### Error Response
-
+**Error Response:**
 ```json
 {
-    "success": false,
-    "error": "Error message describing the failure"
+  "success": false,
+  "error": "Sandbox uuid-string is still active. Use force=true to remove it."
 }
 ```
 
-#### Example Usage
-
+**Example:**
 ```python
-# Remove an inactive sandbox
+# Remove inactive sandbox
 result = await mcp.remove_sandbox(sandbox_id="uuid-string")
 
-# Force remove an active sandbox
+# Force remove active sandbox
 result = await mcp.remove_sandbox(sandbox_id="uuid-string", force=true)
 ```
 
-#### Implementation Details
+---
 
-- **Existence Validation**: Checks if sandbox exists before removal
-- **Activity Check**: Prevents removal of active sandboxes (unless forced)
-- **Force Option**: Allows forced removal of active sandboxes
-- **Container Cleanup**: Stops and removes Docker container
-- **Metadata Cleanup**: Removes sandbox tracking data
-
-### 4. `execute_python_code`
+### `execute_python_code`
 
 Executes Python code in a secure sandbox environment.
 
-#### Parameters
+**Parameters:**
+- `sandbox_id` (required, string): The unique identifier of the sandbox
+- `code` (required, string): The Python code to execute
+- `timeout` (optional, int): Execution timeout in seconds (default: 30)
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `sandbox_id` | `str` | Yes | - | The unique identifier of the sandbox |
-| `code` | `str` | Yes | - | The Python code to execute |
-| `timeout` | `Optional[int]` | No | `30` | Execution timeout in seconds |
-
-#### Returns
-
+**Returns:**
 ```json
 {
-    "success": true,
-    "output": "Code execution output",
-    "error": "",
-    "exit_code": 0
+  "output": "Hello from sandbox!",
+  "exit_code": 0
 }
 ```
 
-#### Error Response
-
+**Error Response:**
 ```json
 {
-    "success": false,
-    "error": "Error message describing the failure"
+  "success": false,
+  "error": "Code execution timed out"
 }
 ```
 
-#### Example Usage
-
+**Example:**
 ```python
-# Execute simple Python code
-result = await mcp.execute_python_code(
-    sandbox_id="uuid-string",
-    code="print('Hello, World!')"
-)
-
-# Execute complex code with timeout
-result = await mcp.execute_python_code(
-    sandbox_id="uuid-string",
-    code="""
+code = '''
+import pandas as pd
 import numpy as np
-data = np.random.randn(1000)
-print(f"Mean: {np.mean(data):.2f}")
-print(f"Std: {np.std(data):.2f}")
-""",
+
+# Create sample data
+data = pd.DataFrame({
+    'name': ['Alice', 'Bob', 'Charlie'],
+    'age': [25, 30, 35],
+    'score': [85, 92, 78]
+})
+
+print(data.to_dict('records'))
+'''
+
+result = await mcp.execute_python_code(
+    sandbox_id="uuid-string",
+    code=code,
     timeout=60
 )
 ```
 
-#### Implementation Details
+---
 
-- **Input Validation**: Validates sandbox existence and code content
-- **Code Execution**: Executes Python code in isolated container
-- **Output Capture**: Captures stdout, stderr, and exit codes
-- **Success Determination**: Based on exit code (0 = success)
-- **Timeout Control**: Enforces execution time limits
+### `install_package`
 
-### 5. `install_package`
+Installs Python packages in a sandbox.
 
-Installs a Python package in a sandbox.
+**Parameters:**
+- `sandbox_id` (required, string): The unique identifier of the sandbox
+- `package` (required, string): Package name(s) to install
+- `timeout` (optional, int): Installation timeout in seconds (default: 60)
 
-#### Parameters
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `sandbox_id` | `str` | Yes | - | The unique identifier of the sandbox |
-| `package` | `str` | Yes | - | The package name and version (e.g., "numpy==1.24.0") |
-| `timeout` | `Optional[int]` | No | `60` | Installation timeout in seconds |
-
-#### Returns
-
+**Returns:**
 ```json
 {
-    "success": true,
-    "output": "Installation output",
-    "error": "",
-    "exit_code": 0
+  "output": "Package(s) installed successfully",
+  "exit_code": 0
 }
 ```
 
-#### Error Response
-
+**Error Response:**
 ```json
 {
-    "success": false,
-    "error": "Error message describing the failure"
+  "success": false,
+  "error": "Package installation failed"
 }
 ```
 
-#### Example Usage
-
+**Example:**
 ```python
-# Install a specific package version
-result = await mcp.install_package(
-    sandbox_id="uuid-string",
-    package="numpy==1.24.0"
-)
-
-# Install latest version of a package
+# Install single package
 result = await mcp.install_package(
     sandbox_id="uuid-string",
     package="pandas"
 )
 
 # Install multiple packages
-packages = ["numpy", "pandas", "scikit-learn"]
-for package in packages:
-    result = await mcp.install_package(
-        sandbox_id="uuid-string",
-        package=package
-    )
-```
-
-#### Implementation Details
-
-- **Package Validation**: Validates package name and sandbox existence
-- **Command Escaping**: Uses `shlex.quote` for shell safety
-- **Pip Installation**: Uses pip for package installation
-- **Output Handling**: Captures installation output and errors
-- **Timeout Control**: Enforces installation time limits
-
-## 📊 Response Format
-
-### Standard Response Structure
-
-All tools return responses in a consistent format:
-
-```json
-{
-    "success": boolean,
-    "data": object | null,
-    "error": string | null,
-    "metadata": object | null
-}
-```
-
-### Success Response
-
-```json
-{
-    "success": true,
-    "data": {
-        // Tool-specific data
-    },
-    "error": null,
-    "metadata": {
-        "timestamp": "2024-01-01T12:00:00",
-        "execution_time_ms": 150
-    }
-}
-```
-
-### Error Response
-
-```json
-{
-    "success": false,
-    "data": null,
-    "error": "Detailed error message",
-    "metadata": {
-        "timestamp": "2024-01-01T12:00:00",
-        "error_code": "SANDBOX_NOT_FOUND"
-    }
-}
-```
-
-## 🔒 Security Considerations
-
-### Input Validation
-
-All tools implement comprehensive input validation:
-
-- **Sandbox ID Validation**: Ensures sandbox exists before operations
-- **Code Validation**: Validates code content and length
-- **Package Validation**: Validates package names and versions
-- **Parameter Validation**: Validates parameter types and ranges
-
-### Command Escaping
-
-```python
-# Example: Package installation with command escaping
-escaped_package = quote(package.strip())
-install_command = f"pip install {escaped_package}"
-```
-
-### Container Security
-
-- **Network Isolation**: Containers run with `network_mode="none"`
-- **Resource Limits**: Memory (512MB), CPU (50% of one core)
-- **User Isolation**: Non-root user (UID 1000)
-- **Filesystem Security**: Read-only with temporary mounts
-- **Capability Dropping**: All Linux capabilities removed
-
-## ⏱️ Timeout Configuration
-
-### Default Timeouts
-
-| Tool | Default Timeout | Environment Variable |
-|------|----------------|---------------------|
-| `create_sandbox` | 300 seconds | `SANDBOX_TIMEOUT` |
-| `execute_python_code` | 30 seconds | - |
-| `install_package` | 60 seconds | - |
-
-### Timeout Behavior
-
-- **Sandbox Creation**: Timeout for sandbox lifecycle
-- **Code Execution**: Timeout for individual code execution
-- **Package Installation**: Timeout for package installation
-- **Auto-cleanup**: Automatic removal of expired sandboxes
-
-## 📈 Performance Characteristics
-
-### Resource Limits
-
-- **Memory**: 512MB per sandbox
-- **CPU**: 50% of one core per sandbox
-- **Disk**: 100MB temporary filesystem
-- **Network**: No network access
-
-### Scalability
-
-- **Concurrent Sandboxes**: Configurable maximum (default: 10)
-- **Auto-cleanup**: Automatic removal of inactive sandboxes
-- **Resource Management**: Efficient container lifecycle management
-
-## 🧪 Testing and Validation
-
-### Tool Testing
-
-Each tool can be tested using the MCP Inspector:
-
-```bash
-npx @modelcontextprotocol/inspector python src/omcp_py/main.py
-```
-
-### Example Test Scenarios
-
-```python
-# Test sandbox creation
-result = await mcp.create_sandbox()
-assert result["success"] == True
-sandbox_id = result["sandbox_id"]
-
-# Test code execution
-result = await mcp.execute_python_code(
-    sandbox_id=sandbox_id,
-    code="print('test')"
-)
-assert result["success"] == True
-assert result["output"] == "test\n"
-
-# Test package installation
 result = await mcp.install_package(
-    sandbox_id=sandbox_id,
-    package="numpy"
-)
-assert result["success"] == True
-
-# Test sandbox cleanup
-result = await mcp.remove_sandbox(sandbox_id=sandbox_id)
-assert result["success"] == True
-```
-
-## 🔄 Error Handling
-
-### Error Types
-
-1. **Validation Errors**: Invalid parameters or inputs
-2. **Resource Errors**: Sandbox not found or resource limits exceeded
-3. **Execution Errors**: Code execution failures
-4. **System Errors**: Docker or system-level failures
-
-### Error Recovery
-
-- **Automatic Cleanup**: Failed sandboxes are automatically cleaned up
-- **Resource Limits**: Enforced to prevent resource exhaustion
-- **Timeout Handling**: Prevents hanging operations
-- **Logging**: Comprehensive error logging for debugging
-
-## 📚 Usage Examples
-
-### Complete Workflow Example
-
-```python
-# 1. Create a new sandbox
-result = await mcp.create_sandbox()
-sandbox_id = result["sandbox_id"]
-
-# 2. Install required packages
-await mcp.install_package(sandbox_id=sandbox_id, package="numpy")
-await mcp.install_package(sandbox_id=sandbox_id, package="pandas")
-
-# 3. Execute analysis code
-result = await mcp.execute_python_code(
-    sandbox_id=sandbox_id,
-    code="""
-import numpy as np
-import pandas as pd
-
-# Perform data analysis
-data = np.random.randn(1000)
-df = pd.DataFrame(data, columns=['values'])
-
-print({
-    "mean": float(df['values'].mean()),
-    "std": float(df['values'].std()),
-    "count": len(df)
-})
-"""
+    sandbox_id="uuid-string",
+    package="pandas numpy matplotlib"
 )
 
-# 4. Clean up sandbox
-await mcp.remove_sandbox(sandbox_id=sandbox_id)
-```
-
-### OMOP CDM Analysis Example
-
-```python
-# Create sandbox for clinical analysis
-result = await mcp.create_sandbox()
-sandbox_id = result["sandbox_id"]
-
-# Install clinical analysis packages
-packages = ["pandas", "sqlalchemy", "psycopg2-binary"]
-for package in packages:
-    await mcp.install_package(sandbox_id=sandbox_id, package=package)
-
-# Execute clinical query
-result = await mcp.execute_python_code(
-    sandbox_id=sandbox_id,
-    code="""
-import pandas as pd
-from sqlalchemy import create_engine
-
-# Connect to OMOP CDM
-engine = create_engine('postgresql://user:pass@host:port/omop_cdm')
-
-# Query diabetes patients
-query = '''
-SELECT COUNT(DISTINCT person_id) as diabetes_count
-FROM condition_occurrence co
-JOIN concept c ON co.condition_concept_id = c.concept_id
-WHERE c.concept_name ILIKE '%diabetes%'
-'''
-
-result = pd.read_sql(query, engine)
-print({"diabetes_patients": int(result['diabetes_count'].iloc[0])})
-"""
+# Install specific version
+result = await mcp.install_package(
+    sandbox_id="uuid-string",
+    package="pandas==1.5.0"
 )
-
-# Clean up
-await mcp.remove_sandbox(sandbox_id=sandbox_id)
 ```
 
 ---
 
-*This document provides complete API reference. For implementation details, see [Implementation Details](implementation.md).* 
+## Healthcare Data Tools
+
+### `create_omop_schema`
+
+Creates OMOP CDM schema in PostgreSQL database.
+
+**Parameters:**
+- `sandbox_id` (required, string): The unique identifier of the sandbox
+
+**Returns:**
+```json
+{
+  "output": "OMOP schema created successfully!",
+  "exit_code": 0
+}
+```
+
+**Error Response:**
+```json
+{
+  "output": "ERROR: connection to server failed",
+  "exit_code": 1
+}
+```
+
+**Example:**
+```python
+result = await mcp.create_omop_schema(sandbox_id="uuid-string")
+```
+
+**Creates Tables:**
+- `omop_cdm.person` - Patient demographics
+- `omop_cdm.visit_occurrence` - Healthcare encounters
+- `omop_cdm.condition_occurrence` - Medical conditions
+
+---
+
+### `load_synthea_to_postgres`
+
+Loads Synthea CSV files into PostgreSQL OMOP database.
+
+**Parameters:**
+- `sandbox_id` (required, string): The unique identifier of the sandbox
+- `csv_directory` (optional, string): Directory containing CSV files (default: "synthetic_data")
+
+**Returns:**
+```json
+{
+  "output": "Synthea data loading completed successfully!",
+  "exit_code": 0
+}
+```
+
+**Error Response:**
+```json
+{
+  "output": "ERROR: File not found: /synthetic_data/patients.csv",
+  "exit_code": 1
+}
+```
+
+**Example:**
+```python
+# Load from default directory
+result = await mcp.load_synthea_to_postgres(sandbox_id="uuid-string")
+
+# Load from custom directory
+result = await mcp.load_synthea_to_postgres(
+    sandbox_id="uuid-string",
+    csv_directory="/custom/data/path"
+)
+```
+
+**Supported CSV Files:**
+- `patients.csv` - Patient demographics
+- `encounters.csv` - Healthcare encounters
+- `conditions.csv` - Medical conditions
+
+---
+
+### `analyze_omop_data`
+
+Performs structured analytics on OMOP data.
+
+**Parameters:**
+- `sandbox_id` (required, string): The unique identifier of the sandbox
+- `analysis_type` (required, string): Type of analysis ("basic", "demographics", "conditions")
+
+**Returns:**
+
+**Basic Analysis:**
+```json
+{
+  "output": "{\"total_patients\": 1000, \"total_visits\": 5000, \"total_conditions\": 8000}",
+  "exit_code": 0
+}
+```
+
+**Demographics Analysis:**
+```json
+{
+  "output": "[{\"gender_concept_id\": 8507, \"patient_count\": 500, \"avg_age\": 45.2}]",
+  "exit_code": 0
+}
+```
+
+**Conditions Analysis:**
+```json
+{
+  "output": "[{\"condition_concept_id\": 316139, \"occurrence_count\": 150, \"patient_count\": 120}]",
+  "exit_code": 0
+}
+```
+
+**Example:**
+```python
+# Basic counts
+result = await mcp.analyze_omop_data(
+    sandbox_id="uuid-string",
+    analysis_type="basic"
+)
+
+# Demographics analysis
+result = await mcp.analyze_omop_data(
+    sandbox_id="uuid-string",
+    analysis_type="demographics"
+)
+
+# Condition prevalence
+result = await mcp.analyze_omop_data(
+    sandbox_id="uuid-string",
+    analysis_type="conditions"
+)
+```
+
+---
+
+### `llm_dataframe_operation`
+
+Performs LLM-friendly dataframe operations on OMOP data.
+
+**Parameters:**
+- `sandbox_id` (required, string): The unique identifier of the sandbox
+- `operation` (required, string): Natural language description of the operation
+- `table_name` (optional, string): Target OMOP table (default: "person")
+
+**Returns:**
+
+**Count Operations:**
+```json
+{
+  "output": "{\"total_count\": 1000}",
+  "exit_code": 0
+}
+```
+
+**Age Analysis:**
+```json
+{
+  "output": "{\"average_age\": 45.2}",
+  "exit_code": 0
+}
+```
+
+**Gender Distribution:**
+```json
+{
+  "output": "{\"gender_distribution\": {\"8507\": 500, \"8532\": 500}}",
+  "exit_code": 0
+}
+```
+
+**Example:**
+```python
+# Count operations
+result = await mcp.llm_dataframe_operation(
+    sandbox_id="uuid-string",
+    operation="Count total patients"
+)
+
+result = await mcp.llm_dataframe_operation(
+    sandbox_id="uuid-string",
+    operation="Count unique conditions"
+)
+
+# Age analysis
+result = await mcp.llm_dataframe_operation(
+    sandbox_id="uuid-string",
+    operation="Show age distribution"
+)
+
+result = await mcp.llm_dataframe_operation(
+    sandbox_id="uuid-string",
+    operation="Calculate average age"
+)
+
+# Gender analysis
+result = await mcp.llm_dataframe_operation(
+    sandbox_id="uuid-string",
+    operation="Show gender distribution"
+)
+
+# Table-specific operations
+result = await mcp.llm_dataframe_operation(
+    sandbox_id="uuid-string",
+    operation="Count total visits",
+    table_name="visit_occurrence"
+)
+```
+
+---
+
+### `execute_sql_in_sandbox`
+
+Executes SQL queries against the OMOP Postgres database from within the sandbox.
+
+**Parameters:**
+- `sandbox_id` (required, string): The unique identifier of the sandbox
+- `sql` (required, string): The SQL query to execute
+
+**Returns:**
+```json
+{
+  "output": "[(1000,), (500,), (8000,)]",
+  "exit_code": 0
+}
+```
+
+**Error Response:**
+```json
+{
+  "output": "ERROR: relation \"omop_cdm.person\" does not exist",
+  "exit_code": 1
+}
+```
+
+**Example:**
+```python
+# Basic count query
+result = await mcp.execute_sql_in_sandbox(
+    sandbox_id="uuid-string",
+    sql="SELECT COUNT(*) FROM omop_cdm.person"
+)
+
+# Complex analytics query
+result = await mcp.execute_sql_in_sandbox(
+    sandbox_id="uuid-string",
+    sql="""
+    SELECT 
+        gender_concept_id,
+        COUNT(*) as patient_count,
+        AVG(EXTRACT(YEAR FROM AGE(birth_datetime))) as avg_age
+    FROM omop_cdm.person 
+    WHERE birth_datetime IS NOT NULL
+    GROUP BY gender_concept_id
+    """
+)
+```
+
+---
+
+## Legacy Tools
+
+### `query_duckdb`
+
+Runs SQL queries against the local DuckDB file.
+
+**Parameters:**
+- `sql` (required, string): The SQL query to execute
+
+**Returns:**
+```json
+{
+  "success": true,
+  "columns": ["count"],
+  "result": [[1000]]
+}
+```
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": "Table 'person' not found"
+}
+```
+
+**Example:**
+```python
+result = await mcp.query_duckdb("SELECT COUNT(*) FROM person")
+```
+
+---
+
+### `ping`
+
+Health check endpoint.
+
+**Parameters:** None
+
+**Returns:**
+```json
+"pong"
+```
+
+**Example:**
+```python
+result = await mcp.ping()
+```
+
+---
+
+## Error Handling
+
+### Common Error Types
+
+1. **Sandbox Not Found**
+   ```json
+   {
+     "success": false,
+     "error": "Sandbox uuid-string not found"
+   }
+   ```
+
+2. **Database Connection Failed**
+   ```json
+   {
+     "output": "ERROR: connection to server at \"db\" (172.18.0.2), port 5432 failed",
+     "exit_code": 1
+   }
+   ```
+
+3. **Package Installation Failed**
+   ```json
+   {
+     "success": false,
+     "error": "Package installation failed"
+   }
+   ```
+
+4. **Timeout Errors**
+   ```json
+   {
+     "success": false,
+     "error": "Code execution timed out"
+   }
+   ```
+
+5. **Resource Limits**
+   ```json
+   {
+     "success": false,
+     "error": "Maximum number of sandboxes reached"
+   }
+   ```
+
+### Error Response Format
+
+All tools follow a consistent error response format:
+
+- **Success**: Tool-specific response format
+- **Failure**: `{"success": false, "error": "error message"}`
+
+### HTTP Status Codes
+
+When used over HTTP transport:
+- `200`: Success
+- `400`: Bad Request (invalid parameters)
+- `404`: Sandbox not found
+- `500`: Internal Server Error
+- `503`: Service Unavailable (database connection issues)
+
+---
+
+## Usage Patterns
+
+### Complete Healthcare Analytics Workflow
+
+```python
+# 1. Setup environment
+sandbox_id = await mcp.create_sandbox()
+await mcp.install_package(sandbox_id, "pandas psycopg2-binary sqlalchemy")
+
+# 2. Initialize database
+await mcp.create_omop_schema(sandbox_id)
+await mcp.load_synthea_to_postgres(sandbox_id, "/synthetic_data")
+
+# 3. Run analytics
+basic_results = await mcp.analyze_omop_data(sandbox_id, "basic")
+demo_results = await mcp.analyze_omop_data(sandbox_id, "demographics")
+
+# 4. LLM queries
+llm_results = await mcp.llm_dataframe_operation(sandbox_id, "Count total patients")
+
+# 5. Custom SQL
+sql_results = await mcp.execute_sql_in_sandbox(
+    sandbox_id,
+    "SELECT COUNT(*) FROM omop_cdm.person WHERE gender_concept_id = 8507"
+)
+
+# 6. Cleanup
+await mcp.remove_sandbox(sandbox_id, force=true)
+```
+
+### Error Handling Pattern
+
+```python
+try:
+    result = await mcp.create_sandbox()
+    if not result.get("success"):
+        print(f"Failed to create sandbox: {result.get('error')}")
+        return
+    
+    sandbox_id = result["sandbox_id"]
+    
+    # Continue with workflow...
+    
+except Exception as e:
+    print(f"Unexpected error: {e}")
+finally:
+    # Always cleanup
+    if sandbox_id:
+        await mcp.remove_sandbox(sandbox_id, force=true)
+```
+
+---
+
+## Performance Considerations
+
+### Timeouts
+
+- **Sandbox Creation**: 30 seconds
+- **Package Installation**: 60 seconds
+- **Code Execution**: 30 seconds (configurable)
+- **Database Operations**: 60 seconds
+
+### Resource Limits
+
+- **Memory per Sandbox**: 512MB
+- **CPU per Sandbox**: 50% of one core
+- **Maximum Sandboxes**: 10 (configurable)
+- **Sandbox Timeout**: 300 seconds (configurable)
+
+### Best Practices
+
+1. **Reuse Sandboxes**: Create one sandbox and reuse it for multiple operations
+2. **Batch Operations**: Install multiple packages in one call
+3. **Cleanup**: Always remove sandboxes when done
+4. **Error Handling**: Implement proper error handling and cleanup
+5. **Monitoring**: Monitor sandbox usage and resource consumption
+
+---
+
+*This API reference covers all available MCP tools. For implementation details, see the [Implementation Guide](implementation.md).* 

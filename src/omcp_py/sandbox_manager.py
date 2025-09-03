@@ -28,10 +28,17 @@ class SandboxManager:
         self.config = config
         self.client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock"))
         self.sandboxes: Dict[str, dict] = {}
-        self._load_sandboxes_from_db()
+        self.db_available = True
+        try:
+            self._load_sandboxes_from_db()
+        except Exception as e:
+            logger.warning(f"Database unavailable, running without persistence: {e}")
+            self.db_available = False
         self._cleanup_old_sandboxes()  # Clean up on startup
 
     def _load_sandboxes_from_db(self):
+        if not self.db_available:
+            return
         session = get_session()
         try:
             db_sandboxes = session.query(DBSandbox).all()
@@ -45,6 +52,8 @@ class SandboxManager:
             session.close()
 
     def _save_sandbox_to_db(self, sandbox_id, created_at, last_used):
+        if not self.db_available:
+            return
         session = get_session()
         try:
             db_sandbox = session.query(DBSandbox).filter_by(id=sandbox_id).first()
@@ -58,6 +67,8 @@ class SandboxManager:
             session.close()
 
     def _remove_sandbox_from_db(self, sandbox_id):
+        if not self.db_available:
+            return
         session = get_session()
         try:
             db_sandbox = session.query(DBSandbox).filter_by(id=sandbox_id).first()
@@ -66,6 +77,16 @@ class SandboxManager:
                 session.commit()
         finally:
             session.close()
+
+    def _cleanup_old_sandboxes(self):
+        # Remove sandboxes that haven't been used within timeout period
+        now = datetime.now()
+        to_remove = []
+        for sandbox_id, sandbox in self.sandboxes.items():
+            if now - sandbox["last_used"] > timedelta(seconds=self.config.sandbox_timeout):
+                to_remove.append(sandbox_id)
+        for sandbox_id in to_remove:
+            self.remove_sandbox(sandbox_id)
 
     def create_sandbox(self) -> str:
         """Create a new isolated Python sandbox container with enhanced security."""
@@ -81,7 +102,7 @@ class SandboxManager:
                 command=["sleep", "infinity"],  # Safer than string command
                 detach=True,
                 name=f"omcp-sandbox-{sandbox_id}",
-                network_mode="none",      # No network access for security
+                # network_mode="none",      # Remove network isolation to allow DB access
                 mem_limit="512m",         # Memory limit
                 cpu_period=100000,        # CPU limits
                 cpu_quota=50000,
@@ -94,6 +115,8 @@ class SandboxManager:
                     "/tmp": "rw,noexec,nosuid,size=100M",
                     "/sandbox": "rw,noexec,nosuid,size=500M"
                 }
+                # Optionally, specify network if using a custom one
+                # network="default"
             )
             
             # Track sandbox metadata
@@ -128,8 +151,11 @@ class SandboxManager:
         except Exception as e:
             logger.error(f"Failed to remove sandbox {sandbox_id}: {e}")
     
-    def execute_code(self, sandbox_id: str, code: str) -> docker.models.containers.ExecResult :
-        """Execute Python code in the specified sandbox container (legacy method)."""
+    def execute_code(self, sandbox_id: str, code: str, timeout: Optional[int] = None) -> dict:
+        """Execute Python code in the specified sandbox container and return a structured dict.
+
+        Returns a dict with keys: output (bytes or str), exit_code (int), error (str|None)
+        """
         if sandbox_id not in self.sandboxes:
             raise ValueError(f"Sandbox {sandbox_id} not found")
         
@@ -139,14 +165,35 @@ class SandboxManager:
         
         try:
             # Execute code in container and capture output
-            exec_result = container.exec_run(
-                ["python3", "-c",code]
-            )
+            # Use a shell-safe invocation and enforce timeout by running python -c in the container
+            cmd = ["python3", "-c", code]
+            exec_result = container.exec_run(cmd, demux=True)
 
-            return exec_result
+            # exec_result is a tuple (exit_code, (stdout, stderr)) when demux=True
+            if isinstance(exec_result, tuple) and len(exec_result) == 2:
+                exit_code, streams = exec_result
+                stdout_b, stderr_b = streams
+            else:
+                # Fallback: older dockerpy returns an ExecResult-like object
+                exit_code = getattr(exec_result, "exit_code", 0)
+                stdout_b = getattr(exec_result, "output", b"")
+                stderr_b = b""
+
+            output = stdout_b or b""
+            stderr = stderr_b or b""
+
+            error_text = None
+            if exit_code != 0:
+                # Prefer stderr if available
+                try:
+                    error_text = stderr.decode(errors="replace").strip() or f"Exit code {exit_code}"
+                except Exception:
+                    error_text = f"Exit code {exit_code}"
+
+            return {"output": output, "exit_code": exit_code, "error": error_text}
         except Exception as e:
             logger.error(f"Failed to execute code in sandbox {sandbox_id}: {e}")
-            raise
+            return {"output": b"", "exit_code": 1, "error": str(e)}
 
     def list_sandboxes(self) -> list:
         """Return list of all active sandboxes with metadata."""

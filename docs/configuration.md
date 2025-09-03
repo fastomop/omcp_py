@@ -519,6 +519,14 @@ python -c "from omcp_py.config import get_config; print(get_config().max_sandbox
 
 For persistent configuration:
 
+## Recent changes (2025-09-03)
+
+Quick updates made to aid local development:
+
+- Database connection settings are now centralized in `src/omcp_py/config.py`. The server reads `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` from environment variables or `.env`.
+- A developer convenience image was added: an imported Postgres filesystem tar in `docker/images/postgres.tar` that was imported as `fastomop/postgres:from-tar`. This is intended for local development; for production use the official Postgres image.
+
+
 1. **Update `.env` file**
 2. **Use system environment variables**
 3. **Use container environment variables**
