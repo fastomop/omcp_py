@@ -37,3 +37,4 @@ htmlcov/
 !.vscode/extensions.json
 *.sublime-workspace
 
+docker/images/*.tar
