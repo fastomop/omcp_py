@@ -84,7 +84,6 @@ logger.info(
 @mcp.tool()
 async def ping() -> str:
     return "pong"
-print("Registered: ping")
 
 @mcp.tool()
 async def create_sandbox(timeout: Optional[int] = 300) -> Dict[str, Any]:
@@ -141,7 +140,6 @@ async def create_sandbox(timeout: Optional[int] = 300) -> Dict[str, Any]:
             "success": False,
             "error": str(e)
         }
-print("Registered: create_sandbox")
 
 @mcp.tool()
 async def list_sandboxes(include_inactive: bool = False) -> Dict[str, Any]:
@@ -193,7 +191,6 @@ async def list_sandboxes(include_inactive: bool = False) -> Dict[str, Any]:
             "success": False,
             "error": str(e)
         }
-print("Registered: list_sandboxes")
 
 @mcp.tool()
 async def remove_sandbox(sandbox_id: str, force: bool = False) -> Dict[str, Any]:
@@ -252,7 +249,6 @@ async def remove_sandbox(sandbox_id: str, force: bool = False) -> Dict[str, Any]
             "success": False,
             "error": str(e)
         }
-print("Registered: remove_sandbox")
 
 @mcp.tool()
 async def execute_python_code(sandbox_id: str, python_code: Optional[str] = None, code: Optional[str] = None, timeout: Optional[int] = 30) -> Dict[str, Any]:
@@ -321,7 +317,6 @@ async def execute_python_code(sandbox_id: str, python_code: Optional[str] = None
             "success": False,
             "error": str(e)
         }
-print("Registered: execute_python_code")
 
 @mcp.tool()
 async def install_package(sandbox_id: str, package: str, timeout: Optional[int] = 60) -> Dict[str, Any]:
@@ -377,11 +372,12 @@ except Exception as e:
 """
         # Execute the installation code in the sandbox with enhanced security
         result = sandbox_manager.execute_code(sandbox_id, code)
-        
-        # Return the installation results
+
+        # result is expected to be a dict with keys: output, exit_code, error
         return {
-            "output": result.output,
-            "exit_code": result.exit_code
+            "output": result.get("output"),
+            "exit_code": result.get("exit_code"),
+            "error": result.get("error")
         }
     except requests.exceptions.ReadTimeout:
         # Handle timeout specifically
