@@ -1,0 +1,9 @@
+version: '3.8'
+services:
+  sandbox-debug:
+    image: fastomop/sandbox:python-3.11-slim
+    command: sleep infinity
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    tty: true
+    stdin_open: true

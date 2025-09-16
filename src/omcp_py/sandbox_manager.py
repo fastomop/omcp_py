@@ -27,6 +27,34 @@ class SandboxManager:
     def __init__(self, config):
         self.config = config
         self.client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock"))
+        # Try to detect a docker-compose project network to attach sandboxes to.
+        # This allows the sandbox to resolve compose service names like 'db'.
+        self.compose_network = None
+        try:
+            # Try to find a docker network that contains a DB/container for this project.
+            nets = list(self.client.networks.list())
+            for n in nets:
+                try:
+                    attrs = n.attrs
+                    containers = attrs.get('Containers') or {}
+                    for cid in containers.keys():
+                        try:
+                            c = self.client.containers.get(cid)
+                            # Check for common DB indicators: service label or container name or image
+                            labels = c.labels or {}
+                            name = (c.name or '').lower()
+                            img = (getattr(c, 'image', None) and getattr(c.image, 'tags', [])) or []
+                            if labels.get('com.docker.compose.service') == 'db' or 'db' == name or any('postgres' in t for t in img):
+                                self.compose_network = n.name
+                                raise StopIteration
+                        except Exception:
+                            continue
+                except StopIteration:
+                    break
+                except Exception:
+                    continue
+        except Exception:
+            self.compose_network = None
         self.sandboxes: Dict[str, dict] = {}
         self.db_available = True
         try:
@@ -97,27 +125,57 @@ class SandboxManager:
         
         try:
             # Create Docker container with enhanced security restrictions
-            container = self.client.containers.run(
-                self.config.docker_image,
+            run_kwargs = dict(
+                image=self.config.docker_image,
                 command=["sleep", "infinity"],  # Safer than string command
                 detach=True,
                 name=f"omcp-sandbox-{sandbox_id}",
-                # network_mode="none",      # Remove network isolation to allow DB access
                 mem_limit="512m",         # Memory limit
                 cpu_period=100000,        # CPU limits
                 cpu_quota=50000,
                 remove=True,              # Auto-remove when stopped
                 user=1000,       # User isolation
-                read_only=True,           # Read-only filesystem
                 cap_drop=["ALL"],         # Drop all capabilities
                 security_opt=["no-new-privileges"],  # Prevent privilege escalation
                 tmpfs={                   # Temporary filesystem mounts
                     "/tmp": "rw,noexec,nosuid,size=100M",
                     "/sandbox": "rw,noexec,nosuid,size=500M"
                 }
-                # Optionally, specify network if using a custom one
-                # network="default"
             )
+
+            # Respect config-driven read-only flag
+            if not getattr(self.config, "sandbox_read_only", False):
+                # if not read-only, don't set read_only to True
+                pass
+            else:
+                run_kwargs["read_only"] = True
+
+            # Allow containers to reach the host via host-gateway if requested
+            if getattr(self.config, "allow_host_gateway", False):
+                # Create a small user-defined network with --add-host mapping if needed
+                # Docker SDK allows passing "extra_hosts"
+                run_kwargs.setdefault("extra_hosts", {})["host.docker.internal"] = "host-gateway"
+
+            # Optionally specify network mode or join compose network if detected
+            explicit_net = getattr(self.config, "sandbox_network", None)
+            if explicit_net:
+                run_kwargs["network_mode"] = explicit_net
+
+            try:
+                container = self.client.containers.run(**run_kwargs)
+            except docker.errors.ImageNotFound:
+                # Fallback: try official python slim if custom image not available
+                run_kwargs['image'] = 'python:3.11-slim'
+                container = self.client.containers.run(**run_kwargs)
+
+            # If compose network detected and not already in network_mode, connect container to that network
+            if not explicit_net and self.compose_network:
+                try:
+                    net = self.client.networks.get(self.compose_network)
+                    net.connect(container)
+                except Exception:
+                    # best-effort, ignore failures
+                    pass
             
             # Track sandbox metadata
             self.sandboxes[sandbox_id] = {
@@ -167,7 +225,12 @@ class SandboxManager:
             # Execute code in container and capture output
             # Use a shell-safe invocation and enforce timeout by running python -c in the container
             cmd = ["python3", "-c", code]
-            exec_result = container.exec_run(cmd, demux=True)
+            # Use a longer timeout flag on exec_run if available
+            try:
+                exec_result = container.exec_run(cmd, demux=True, stdout=True, stderr=True)
+            except TypeError:
+                # Older docker-py may not accept keyword args; fall back
+                exec_result = container.exec_run(cmd, demux=True)
 
             # exec_result is a tuple (exit_code, (stdout, stderr)) when demux=True
             if isinstance(exec_result, tuple) and len(exec_result) == 2:
@@ -182,15 +245,22 @@ class SandboxManager:
             output = stdout_b or b""
             stderr = stderr_b or b""
 
+            # Normalize to decoded strings for easier consumption
+            try:
+                output_text = output.decode(errors="replace") if isinstance(output, (bytes, bytearray)) else str(output)
+            except Exception:
+                output_text = str(output)
+            try:
+                stderr_text = stderr.decode(errors="replace") if isinstance(stderr, (bytes, bytearray)) else str(stderr)
+            except Exception:
+                stderr_text = str(stderr)
+
             error_text = None
             if exit_code != 0:
                 # Prefer stderr if available
-                try:
-                    error_text = stderr.decode(errors="replace").strip() or f"Exit code {exit_code}"
-                except Exception:
-                    error_text = f"Exit code {exit_code}"
+                error_text = stderr_text.strip() or f"Exit code {exit_code}"
 
-            return {"output": output, "exit_code": exit_code, "error": error_text}
+            return {"output": output_text, "exit_code": exit_code, "error": error_text}
         except Exception as e:
             logger.error(f"Failed to execute code in sandbox {sandbox_id}: {e}")
             return {"output": b"", "exit_code": 1, "error": str(e)}

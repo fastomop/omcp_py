@@ -73,6 +73,13 @@ mcp = FastMCP("Python Sandbox")
 # Initialize the sandbox manager - handles Docker container lifecycle
 # This is a singleton that manages all sandbox containers
 sandbox_manager = SandboxManager(config)
+# Log sandbox network configuration so operators know where sandboxes will be attached
+logger.info(
+    "Sandbox network config: SANDBOX_NETWORK=%s, ALLOW_HOST_GATEWAY=%s, detected_compose_network=%s",
+    getattr(config, "sandbox_network", None),
+    getattr(config, "allow_host_gateway", None),
+    getattr(sandbox_manager, "compose_network", None)
+)
 
 @mcp.tool()
 async def ping() -> str:
