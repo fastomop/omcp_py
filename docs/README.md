@@ -53,6 +53,18 @@ uv pip install -e .
 python src/omcp_py/main.py
 ```
 
+## Demo script
+
+There is a convenience demo script at `scripts/demo.sh` which builds a prebuilt sandbox image,
+starts the `db` service via docker-compose, launches the MCP server (background), runs the
+local client to perform a small end-to-end check, and prints OMOP table counts.
+
+Build the sandbox image locally if you want fast and reliable installs:
+
+```bash
+docker build -t fastomop/sandbox:python-3.11-slim -f docker/sandbox/Dockerfile .
+```
+
 ### Using MCP Inspector
 ```bash
 npx @modelcontextprotocol/inspector python src/omcp_py/main.py

@@ -186,7 +186,7 @@ Create a `.env` file or set environment variables:
 # Sandbox Configuration
 SANDBOX_TIMEOUT=300
 MAX_SANDBOXES=10
-DOCKER_IMAGE=python:3.11-slim
+DOCKER_IMAGE=fastomop/sandbox:python-3.11-slim  # recommended prebuilt sandbox image
 DEBUG=false
 LOG_LEVEL=INFO
 
@@ -214,8 +214,28 @@ python tests/test_synthea_integration.py
 
 ### Run Workflow Demo
 ```bash
-python scripts/synthea_workflow.py
+./scripts/demo.sh
 ```
+
+## Demo and prebuilt sandbox image
+
+We provide a prebuilt sandbox Dockerfile and a convenience demo script to run an end-to-end local demo.
+
+- Build the prebuilt sandbox image (optional but recommended):
+
+```bash
+docker build -t fastomop/sandbox:python-3.11-slim -f docker/sandbox/Dockerfile .
+```
+
+- Run the demo (builds image, starts DB, launches server, runs a local client and prints DB counts):
+
+```bash
+./scripts/demo.sh
+```
+
+Notes:
+- The sandbox manager will auto-join the docker-compose network (if detected) so sandboxes can resolve the `db` service name when running under `docker compose`.
+- If you use a host Postgres instance, set `DB_HOST=host.docker.internal` or enable host-gateway resolution.
 
 ### Test Individual Components
 ```bash
@@ -321,4 +341,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-Built by Zhangshu and the wider FastOMCP team  
+Built by Zhangshu Joshua Jiang and the wider FastOMCP team  
