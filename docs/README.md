@@ -70,6 +70,27 @@ docker build -t fastomop/sandbox:python-3.11-slim -f docker/sandbox/Dockerfile .
 npx @modelcontextprotocol/inspector python src/omcp_py/main.py
 ```
 
+## Run inside sandbox (example)
+
+You can execute Python inside a sandbox using the `execute_python_code` tool. Example code snippet (run in a sandbox):
+
+```python
+# run inside sandbox via execute_python_code tool
+code = '''
+import pandas as pd
+from sqlalchemy import create_engine, text
+engine = create_engine("postgresql://omcp:postgres@db:5432/omcp")
+with engine.begin() as conn:
+	conn.execute(text("CREATE SCHEMA IF NOT EXISTS omop_cdm"))
+	conn.execute(text("CREATE TABLE IF NOT EXISTS omop_cdm.person (person_id INTEGER PRIMARY KEY, gender_concept_id INTEGER)"))
+	conn.execute(text("INSERT INTO omop_cdm.person (person_id, gender_concept_id) VALUES (1, 8507) ON CONFLICT DO NOTHING"))
+	res = conn.execute(text("SELECT person_id, gender_concept_id FROM omop_cdm.person"))
+	rows = res.fetchall()
+print(rows)
+'''
+# call execute_python_code(sandbox_id, code)
+```
+
 ## 📋 Documentation Index
 
 | Document | Description |

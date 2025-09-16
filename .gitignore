@@ -38,4 +38,44 @@ htmlcov/
 *.sublime-workspace
 
 docker/images/*.tar
+# Virtual environments
+venv/
+env/
+ENV/
+.env/
+.venv/
+
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDE specific files
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.sublime-workspace
+
+docker/images/*.tar
 docker/images/*.tar
