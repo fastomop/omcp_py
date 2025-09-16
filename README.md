@@ -233,6 +233,12 @@ docker build -t fastomop/sandbox:python-3.11-slim -f docker/sandbox/Dockerfile .
 ./scripts/demo.sh
 ```
 
+If you have a DuckDB snapshot at `synthetic_data/synthea.duckdb` and want the demo to load Synthea into Postgres, run:
+
+```bash
+./scripts/demo.sh --load-duckdb
+```
+
 Notes:
 - The sandbox manager will auto-join the docker-compose network (if detected) so sandboxes can resolve the `db` service name when running under `docker compose`.
 - If you use a host Postgres instance, set `DB_HOST=host.docker.internal` or enable host-gateway resolution.
