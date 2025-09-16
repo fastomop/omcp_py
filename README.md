@@ -239,6 +239,17 @@ If you have a DuckDB snapshot at `synthetic_data/synthea.duckdb` and want the de
 ./scripts/demo.sh --load-duckdb
 ```
 
+If port 5432 on your host is already in use, pass an alternate host port to the demo script or set `DB_PORT` in your environment (or .env) before running:
+
+```bash
+# Use port 5433 for the host mapping
+./scripts/demo.sh --db-port 5433 --load-duckdb
+
+# or export DB_PORT beforehand
+export DB_PORT=5433
+./scripts/demo.sh --load-duckdb
+```
+
 Notes:
 - The sandbox manager will auto-join the docker-compose network (if detected) so sandboxes can resolve the `db` service name when running under `docker compose`.
 - If you use a host Postgres instance, set `DB_HOST=host.docker.internal` or enable host-gateway resolution.
