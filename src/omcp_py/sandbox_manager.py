@@ -209,35 +209,54 @@ class SandboxManager:
         except Exception as e:
             logger.error(f"Failed to remove sandbox {sandbox_id}: {e}")
     
-    def execute_code(self, sandbox_id: str, code: str, timeout: Optional[int] = None) -> dict:
+    def execute_code(self, sandbox_id: str, code: str, timeout: Optional[int] = None, validate: bool = False) -> dict:
         """Execute Python code in the specified sandbox container and return a structured dict.
 
-        Returns a dict with keys: output (bytes or str), exit_code (int), error (str|None)
+        Args:
+            sandbox_id: The ID of the sandbox
+            code: The Python code to execute
+            timeout: Execution timeout in seconds (default: None)
+            validate: Whether to validate code for dangerous patterns (default: False)
+
+        Returns:
+            Dict with keys: output (str), exit_code (int), error (str|None)
         """
         if sandbox_id not in self.sandboxes:
             raise ValueError(f"Sandbox {sandbox_id} not found")
         
-        container:docker.models.containers.Container = self.sandboxes[sandbox_id]["container"]
-        self.sandboxes[sandbox_id]["last_used"] = datetime.now()  # Update usage time
+        # Validation
+        if validate:
+            from omcp_py.security.code_validator import validator
+            is_valid, error_msg = validator.validate(code)
+            if not is_valid:
+                return {
+                    "output": "",
+                    "exit_code": 1,
+                    "error": f"Security Violation: {error_msg}"
+                }
+        
+        container = self.sandboxes[sandbox_id]["container"]
+        self.sandboxes[sandbox_id]["last_used"] = datetime.now()
         self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
         
         try:
-            # Execute code in container and capture output
-            # Use a shell-safe invocation and enforce timeout by running python -c in the container
+            # Construct command with timeout enforcement
             cmd = ["python3", "-c", code]
-            # Use a longer timeout flag on exec_run if available
-            try:
-                exec_result = container.exec_run(cmd, demux=True, stdout=True, stderr=True)
-            except TypeError:
-                # Older docker-py may not accept keyword args; fall back
-                exec_result = container.exec_run(cmd, demux=True)
+            
+            if timeout:
+                # Use 'timeout' command to kill process if it runs too long
+                # timeout -k <kill_timeout> <duration> <command>
+                # We add a small kill buffer
+                cmd = ["timeout", "-k", "5", str(timeout)] + cmd
 
-            # exec_result is a tuple (exit_code, (stdout, stderr)) when demux=True
+            # Execute code
+            exec_result = container.exec_run(cmd, demux=True)
+
+            # Parse result (docker-py returned tuple or object depending on version/mock)
             if isinstance(exec_result, tuple) and len(exec_result) == 2:
                 exit_code, streams = exec_result
                 stdout_b, stderr_b = streams
             else:
-                # Fallback: older dockerpy returns an ExecResult-like object
                 exit_code = getattr(exec_result, "exit_code", 0)
                 stdout_b = getattr(exec_result, "output", b"")
                 stderr_b = b""
@@ -245,7 +264,7 @@ class SandboxManager:
             output = stdout_b or b""
             stderr = stderr_b or b""
 
-            # Normalize to decoded strings for easier consumption
+            # Normalize output
             try:
                 output_text = output.decode(errors="replace") if isinstance(output, (bytes, bytearray)) else str(output)
             except Exception:
@@ -257,13 +276,15 @@ class SandboxManager:
 
             error_text = None
             if exit_code != 0:
-                # Prefer stderr if available
-                error_text = stderr_text.strip() or f"Exit code {exit_code}"
+                if exit_code == 124: # timeout command exit code
+                    error_text = f"Execution timed out after {timeout} seconds"
+                else:
+                    error_text = stderr_text.strip() or f"Exit code {exit_code}"
 
             return {"output": output_text, "exit_code": exit_code, "error": error_text}
         except Exception as e:
             logger.error(f"Failed to execute code in sandbox {sandbox_id}: {e}")
-            return {"output": b"", "exit_code": 1, "error": str(e)}
+            return {"output": "", "exit_code": 1, "error": str(e)}
 
     def list_sandboxes(self) -> list:
         """Return list of all active sandboxes with metadata."""

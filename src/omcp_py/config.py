@@ -12,20 +12,6 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file if it exists
 load_dotenv()
-"""
-Configuration management for the MCP sandbox server.
-
-Loads configuration from environment variables with sensible defaults
-for sandbox timeouts, limits, and logging settings.
-"""
-
-import os
-from dataclasses import dataclass
-from typing import Optional
-from dotenv import load_dotenv
-
-# Load environment variables from .env file if it exists
-load_dotenv()
 
 
 @dataclass

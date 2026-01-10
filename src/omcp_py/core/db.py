@@ -11,16 +11,25 @@ class Sandbox(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     last_used = Column(DateTime, default=datetime.utcnow)
 
-# Database engine and session setup
-def get_engine():
-    config = get_config()
-    url = f"postgresql+psycopg2://{config.db_user}:{config.db_password}@{config.db_host}:{config.db_port}/{config.db_name}"
-    return create_engine(url, echo=config.debug)
+# Database engine and session setup with lazy initialization
+_engine = None
+_SessionLocal = None
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+def get_engine():
+    """Get or create the database engine."""
+    global _engine
+    if _engine is None:
+        config = get_config()
+        url = f"postgresql+psycopg2://{config.db_user}:{config.db_password}@{config.db_host}:{config.db_port}/{config.db_name}"
+        _engine = create_engine(url, echo=config.debug)
+    return _engine
 
 def get_session():
-    return SessionLocal()
+    """Get a new database session using lazy-initialized session maker."""
+    global _SessionLocal
+    if _SessionLocal is None:
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+    return _SessionLocal()
 
 def create_tables():
     engine = get_engine()

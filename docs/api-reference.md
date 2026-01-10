@@ -489,7 +489,51 @@ result = await mcp.execute_sql_in_sandbox(
 
 ---
 
-## Legacy Tools
+---
+
+## Query Tools
+
+These tools enable direct access to data sources without the overhead of creating a full sandbox container. They are significantly faster for read-only operations.
+
+### `query_omop_table`
+
+Directly query an OMOP table from the PostgreSQL database (Fast Path).
+
+**Parameters:**
+- `table_name` (required, string): Name of the OMOP table (e.g., 'person')
+- `limit` (optional, int): Maximum rows to return (default: 100, max: 1000)
+- `columns` (optional, list[str]): Specific columns to select
+- `where` (optional, string): SQL WHERE clause (e.g., "gender_concept_id = 8507")
+
+**Returns:**
+```json
+{
+  "success": true,
+  "count": 1,
+  "data": [
+    {
+      "person_id": 1,
+      "gender_concept_id": 8507
+    }
+  ]
+}
+```
+
+**Example:**
+```python
+# Get first 10 people
+result = await mcp.query_omop_table(
+    table_name="person",
+    limit=10
+)
+
+# Filter with specific columns
+result = await mcp.query_omop_table(
+    table_name="person",
+    columns=["person_id", "year_of_birth"],
+    where="year_of_birth > 1980"
+)
+```
 
 ### `query_duckdb`
 
@@ -507,20 +551,14 @@ Runs SQL queries against the local DuckDB file.
 }
 ```
 
-**Error Response:**
-```json
-{
-  "success": false,
-  "error": "Table 'person' not found"
-}
-```
-
 **Example:**
 ```python
 result = await mcp.query_duckdb("SELECT COUNT(*) FROM person")
 ```
 
 ---
+
+## Legacy Tools
 
 ### `ping`
 

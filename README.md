@@ -1,361 +1,130 @@
 # OMCP Python Sandbox Server
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Docker](https://img.shields.io/badge/docker-required-blue.svg)](https://www.docker.com/)
-[![MCP](https://img.shields.io/badge/MCP-1.11.0-green.svg)](https://modelcontextprotocol.io/)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
+![Docker](https://img.shields.io/badge/docker-required-blue.svg)
+![Status](https://img.shields.io/badge/status-stable-green.svg)
 
-## Overview
-
-A secure, Docker-based Python sandbox server using the Model Context Protocol (MCP) for isolated code execution and advanced healthcare analytics. This project enables secure processing of Synthea synthetic healthcare data with PostgreSQL OMOP CDM integration and LLM-powered analytics.
+A secure, modular, Docker-based Python sandbox server implementing the Model Context Protocol (MCP). Designed for safe code execution and advanced healthcare data analytics (OMOP CDM).
 
 ## 🚀 Key Features
 
-- **🔒 Secure Sandboxing**: Isolated Docker containers with resource limits and user isolation
-- **🏥 Healthcare Data Pipeline**: Synthea-to-PostgreSQL with OMOP CDM mapping
-- **🤖 LLM Integration**: Natural language queries for healthcare analytics
-- **📊 Advanced Analytics**: Structured and LLM-friendly data exploration
-- **🔧 MCP Protocol**: Model Context Protocol for AI agent integration
-- **🐳 Docker Integration**: Containerized PostgreSQL database with data persistence
+- **Secure Sandboxing**: Executes Python code in isolated, ephemeral Docker containers with no network access, read-only filesystems, and dropped capabilities.
+- **Modular Architecture**: Clean separation of concerns with dedicated modules for sandbox lifecycle, OMOP operations, and direct queries.
+- **Healthcare Ready**: Built-in tools for creating OMOP schemas, loading Synthea data, and performing patient cohort analysis.
+- **Performance Optimized**: "Fast Path" direct query tools bypass container overhead for read-only operations.
+- **Security First**: Static code validation, robust timeout enforcement, and secure credential injection.
 
 ## 🏗️ Architecture
 
+The system uses a layered architecture:
+
+```mermaid
+graph TD
+    Client[MCP Client] <--> Server[FastMCP Server]
+    Server <--> Tools[Modular Tools]
+    
+    subgraph "Tool Layer"
+        Tools --> SandboxTools[Sandbox Tools]
+        Tools --> OMOPTools[OMOP Tools]
+        Tools --> QueryTools[Query Tools]
+    end
+    
+    subgraph "Core Layer"
+        SandboxTools --> Manager[Sandbox Manager]
+        Manager --> Validator[Code Validator]
+        QueryTools --> DB[Database Engine]
+    end
+    
+    subgraph "Execution Layer"
+        Manager --> Docker[Docker Containers]
+        DB --> Postgres[(PostgreSQL)]
+        Docker --> Scripts[OMOP Script Lib]
+    end
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   MCP Client    │───▶│  FastMCP Server  │───▶│ Docker Sandbox  │
-│  (AI Agent)     │    │   (main.py)      │    │  (Isolated)     │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                                │                        │
-                                ▼                        ▼
-                       ┌──────────────────┐    ┌─────────────────┐
-                       │ PostgreSQL DB    │    │ Synthea CSV     │
-                       │ (OMOP CDM)       │    │ (Mounted Data)  │
-                       └──────────────────┘    └─────────────────┘
-```
 
-## 📋 Prerequisites
+## 🛠️ Installation
 
-- **Python 3.8+** with pip
-- **Docker & Docker Compose**
-- **Synthea CSV files** (optional, for healthcare data processing)
+### Prerequisites
+- Python 3.10+
+- Docker Engine
+- `uv` package manager (recommended)
 
-## Using UV for environment management
+### Setup
 
-This project is configured to use `uv` for environment management. `uv` creates and manages Python virtual environments and can install the dependencies declared in `pyproject.toml` under `tool.uv`.
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/yourusername/omcp_py.git
+   cd omcp_py
+   ```
 
-Quick start using `uv`:
+2. **Configure Environment:**
+   ```bash
+   cp sample.env .env
+   # Edit .env with your Docker and Database settings
+   ```
+
+3. **Install Dependencies:**
+   ```bash
+   uv sync
+   # OR
+   pip install -e .
+   ```
+
+4. **Start the Database (Optional):**
+   ```bash
+   docker-compose up -d
+   ```
+
+## � Usage
+
+Start the MCP server:
 
 ```bash
-# Install uv (see https://astral.sh/uv for instructions)
-# Then create a uv-managed venv and install dependencies:
-scripts/setup_uv.sh
-source .venv/bin/activate
+uv run src/omcp_py/main.py
+# OR
+python3 src/omcp_py/main.py
 ```
 
-If you prefer not to use `uv`, you can still create a regular venv and install the packages listed in `pyproject.toml` or `requirements.txt`.
+### Available Tools
 
+| Tool Category | Tools | Description |
+|---------------|-------|-------------|
+| **Sandbox** | `create_sandbox` | Create a new isolated environment |
+| | `execute_python_code` | Run secure Python code |
+| | `install_package` | Install PyPI packages safely |
+| | `list_sandboxes` | Manage active containers |
+| **OMOP** | `create_omop_schema` | Initialize healthcare database schema |
+| | `load_synthea_to_postgres` | Import synthetic patient data |
+| | `analyze_omop_data` | Run pre-built analytics |
+| **Query** | `query_omop_table` | **Fast Path** direct database read |
+| | `query_duckdb` | Query local DuckDB files |
 
-## 🚀 Quick Start
+## 🔒 Security Model
 
-### 1. Clone and Setup
+- **Code Validation**: User code is scanned for dangerous imports (`os`, `subprocess`) before execution.
+- **Container Isolation**:
+  - `network_mode="none"`: No internet access.
+  - `read_only=True`: Filesystem cannot be modified.
+  - `cap_drop=["ALL"]`: All Linux capabilities removed.
+  - `pids_limit=50`: Prevents fork bombs.
+- **Resource Limits**: Configurable CPU and Memory caps.
 
-```bash
-git clone https://github.com/fastomop/omcp_py.git
-cd omcp_py
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Start PostgreSQL Database
-
-```bash
-# Start the OMOP database
-docker-compose up -d db
-
-# Verify it's running
-docker-compose ps
-```
-
-### 3. Prepare Data (Optional)
-
-Place your Synthea CSV files in the `synthetic_data/` directory:
+## � Project Structure
 
 ```
-synthetic_data/
-├── patients.csv      # Patient demographics
-├── encounters.csv    # Healthcare encounters  
-├── conditions.csv    # Medical conditions
-└── ...
+src/omcp_py/
+├── core/           # Core logic (Globals, DB)
+├── security/       # Security validators
+├── tools/          # MCP Tool implementations
+│   ├── sandbox_tools.py
+│   ├── omop_tools.py
+│   └── query_tools.py
+├── scripts/        # Standalone script library
+│   └── omop/       # Helper scripts injected into containers
+└── main.py         # Entry point
 ```
-
-### 4. Start the MCP Server
-
-```bash
-# Set Python path
-export PYTHONPATH=src
-
-# Start the server
-python src/omcp_py/main.py
-```
-
-### 5. Connect with MCP Client
-
-Use [MCP Inspector](https://github.com/modelcontextprotocol/inspector) or your preferred MCP client:
-
-```bash
-# Install MCP Inspector
-npm install -g @modelcontextprotocol/inspector
-
-# Connect to the server
-mcp-inspector python src/omcp_py/main.py
-```
-
-Then open http://127.0.0.1:6274 in your browser.
-
-## 🏥 Healthcare Data Workflow
-
-### Complete Synthea-to-PostgreSQL Pipeline
-
-```python
-# 1. Create sandbox and install packages
-sandbox_id = await mcp.create_sandbox()
-await mcp.install_package(sandbox_id, "pandas psycopg2-binary sqlalchemy")
-
-# 2. Create OMOP CDM schema
-await mcp.create_omop_schema(sandbox_id)
-
-# 3. Load Synthea data
-await mcp.load_synthea_to_postgres(sandbox_id, "/synthetic_data")
-
-# 4. Run analytics
-await mcp.analyze_omop_data(sandbox_id, "basic")
-await mcp.llm_dataframe_operation(sandbox_id, "Count total patients")
-```
-
-### Available MCP Tools
-
-| Tool | Description | Example |
-|------|-------------|---------|
-| `create_sandbox` | Create isolated Python environment | `create_sandbox()` |
-| `install_package` | Install Python packages | `install_package(sandbox_id, "pandas")` |
-| `create_omop_schema` | Create OMOP CDM database schema | `create_omop_schema(sandbox_id)` |
-| `load_synthea_to_postgres` | Load Synthea CSV to PostgreSQL | `load_synthea_to_postgres(sandbox_id, "/synthetic_data")` |
-| `analyze_omop_data` | Run structured analytics | `analyze_omop_data(sandbox_id, "basic")` |
-| `llm_dataframe_operation` | Natural language queries | `llm_dataframe_operation(sandbox_id, "Count patients")` |
-| `execute_sql_in_sandbox` | Direct SQL execution | `execute_sql_in_sandbox(sandbox_id, "SELECT COUNT(*) FROM person")` |
-| `remove_sandbox` | Clean up sandbox | `remove_sandbox(sandbox_id, force=True)` |
-
-## 📊 Analytics Examples
-
-### Basic Counts
-```json
-{
-  "total_patients": 1000,
-  "total_visits": 5000,
-  "total_conditions": 8000
-}
-```
-
-### Demographics Analysis
-```json
-[
-  {
-    "gender_concept_id": 8507,
-    "patient_count": 500,
-    "avg_age": 45.2
-  }
-]
-```
-
-### LLM Natural Language Queries
-```python
-# These work with natural language
-await mcp.llm_dataframe_operation(sandbox_id, "Count total patients")
-await mcp.llm_dataframe_operation(sandbox_id, "Show age distribution")
-await mcp.llm_dataframe_operation(sandbox_id, "Count unique conditions")
-await mcp.llm_dataframe_operation(sandbox_id, "Show gender distribution")
-```
-
-## 🔧 Configuration
-
-### Environment Variables
-
-Create a `.env` file or set environment variables:
-
-```bash
-# Sandbox Configuration
-SANDBOX_TIMEOUT=300
-MAX_SANDBOXES=10
-DOCKER_IMAGE=fastomop/sandbox:python-3.11-slim  # recommended prebuilt sandbox image
-DEBUG=false
-LOG_LEVEL=INFO
-
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=omop_user
-DB_PASSWORD=omop_pass
-DB_NAME=omop
-```
-
-### Docker Compose
-
-The `docker-compose.yml` provides:
-- PostgreSQL 15 with OMOP database
-- Persistent data storage
-- Synthea data directory mounting
-
-## 🧪 Testing
-
-### Run Integration Tests
-```bash
-python tests/test_synthea_integration.py
-```
-
-### Run Workflow Demo
-```bash
-./scripts/demo.sh
-```
-
-## Demo and prebuilt sandbox image
-
-We provide a prebuilt sandbox Dockerfile and a convenience demo script to run an end-to-end local demo.
-
-- Build the prebuilt sandbox image (optional but recommended):
-
-```bash
-docker build -t fastomop/sandbox:python-3.11-slim -f docker/sandbox/Dockerfile .
-```
-
-- Run the demo (builds image, starts DB, launches server, runs a local client and prints DB counts):
-
-```bash
-./scripts/demo.sh
-```
-
-If you have a DuckDB snapshot at `synthetic_data/synthea.duckdb` and want the demo to load Synthea into Postgres, run:
-
-```bash
-./scripts/demo.sh --load-duckdb
-```
-
-If port 5432 on your host is already in use, pass an alternate host port to the demo script or set `DB_PORT` in your environment (or .env) before running:
-
-```bash
-# Use port 5433 for the host mapping
-./scripts/demo.sh --db-port 5433 --load-duckdb
-
-# or export DB_PORT beforehand
-export DB_PORT=5433
-./scripts/demo.sh --load-duckdb
-```
-
-Notes:
-- The sandbox manager will auto-join the docker-compose network (if detected) so sandboxes can resolve the `db` service name when running under `docker compose`.
-- If you use a host Postgres instance, set `DB_HOST=host.docker.internal` or enable host-gateway resolution.
-
-### Test Individual Components
-```bash
-# Test file structure
-python -c "import src.omcp_py.main; print('✅ Main module loads successfully')"
-
-# Test Docker Compose
-docker-compose config
-```
-
-## 🔒 Security Features
-
-- **Container Isolation**: Each sandbox runs in isolated Docker containers
-- **Resource Limits**: CPU and memory restrictions per sandbox
-- **User Isolation**: Non-root user execution
-- **Network Security**: Controlled network access
-- **File System**: Read-only filesystem with temporary mounts
-- **Capability Dropping**: Removed dangerous Linux capabilities
-- **Auto-cleanup**: Automatic removal of inactive sandboxes
-
-## 📚 Documentation
-
-- **[Synthea Usage Guide](docs/synthea_usage_guide.md)** - Detailed workflow documentation
-- **[API Reference](docs/api-reference.md)** - Complete tool documentation
-- **[Configuration Guide](docs/configuration.md)** - Environment and deployment setup
-- **[Architecture Overview](docs/architecture.md)** - System design and components
-
-## 🚀 Advanced Usage
-
-### Custom Data Mapping
-
-Extend the Synthea-to-OMOP mapping in `load_synthea_to_postgres`:
-
-```python
-synthea_mappings = {
-    'custom_data.csv': {
-        'table': 'omop_cdm.custom_table',
-        'columns': {
-            'custom_id': 'person_id',
-            'custom_date': 'birth_datetime'
-        }
-    }
-}
-```
-
-### Additional OMOP Tables
-
-Extend the schema to include more OMOP CDM tables:
-- `drug_exposure`
-- `procedure_occurrence`
-- `measurement`
-- `observation`
-
-### Custom Analytics
-
-Create domain-specific analytics:
-
-```python
-# Custom Python code in sandbox
-code = '''
-import pandas as pd
-from sqlalchemy import create_engine
-
-engine = create_engine('postgresql://omcp:postgres@db:5432/omcp')
-df = pd.read_sql("SELECT * FROM omop_cdm.person", engine)
-
-# Your custom analysis here
-result = df.groupby('gender_concept_id').agg({
-    'person_id': 'count',
-    'birth_datetime': lambda x: pd.Timestamp.now().year - pd.to_datetime(x).dt.year.mean()
-}).to_dict()
-
-print(result)
-'''
-
-await mcp.execute_python_code(sandbox_id, code)
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [Model Context Protocol](https://modelcontextprotocol.io/) for the MCP specification
-- [FastMCP](https://gofastmcp.com/) for the Python MCP implementation
-- [Synthea](https://github.com/synthetichealth/synthea) for synthetic healthcare data
-- [OMOP CDM](https://ohdsi.github.io/CommonDataModel/) for healthcare data standards
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/fastomop/omcp_py/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/fastomop/omcp_py/discussions)
-- **Documentation**: [Wiki](https://github.com/fastomop/omcp_py/wiki)
-
----
-
-Built by Zhangshu Joshua Jiang and the wider FastOMCP team  
+MIT
