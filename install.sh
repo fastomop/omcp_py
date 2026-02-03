@@ -59,15 +59,9 @@ echo ""
 echo "🎉 Installation completed successfully!"
 echo ""
 echo "To start the FastMCP server:"
-echo "  python server_fastmcp.py"
+echo "  python src/omcp_py/main.py"
 echo ""
 echo "To use MCP Inspector:"
-echo "  npx @modelcontextprotocol/inspector python server_fastmcp.py"
+echo "  npx @modelcontextprotocol/inspector python src/omcp_py/main.py"
 echo ""
 echo "For more information, see README.md"
-
-try:
-    import omcp_py
-except ImportError:
-    print('Run: pip install -e .')
-    exit(1) 

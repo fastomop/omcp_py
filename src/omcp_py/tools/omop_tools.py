@@ -1,12 +1,13 @@
 
 import logging
+import re
 from pathlib import Path
 from omcp_py.core.globals import sandbox_manager, config
 
 logger = logging.getLogger(__name__)
 
 def _get_script_content(script_name: str) -> str:
-    """Load script content and inject configuration environment variables."""
+    """Load script content."""
     # Find the script path relative to this module
     # src/omcp_py/tools/omop_tools.py -> src/omcp_py/scripts/omop/{script_name}
     script_path = Path(__file__).parent.parent / "scripts" / "omop" / script_name
@@ -14,19 +15,19 @@ def _get_script_content(script_name: str) -> str:
     if not script_path.exists():
         raise FileNotFoundError(f"Script {script_name} not found at {script_path}")
         
-    script_content = script_path.read_text()
-    
-    # Inject environment variables for the script
-    # We do this by prepending python code to set os.environ
-    env_setup = f"""
-import os
-os.environ['OMOP_DB_NAME'] = '{config.db_name}'
-os.environ['OMOP_DB_USER'] = '{config.db_user}'
-os.environ['OMOP_DB_PASSWORD'] = '{config.db_password}'
-os.environ['OMOP_DB_HOST'] = '{config.db_host}'
-os.environ['OMOP_DB_PORT'] = '{config.db_port}'
-"""
-    return env_setup + script_content
+    return script_path.read_text()
+
+def _db_env() -> dict:
+    return {
+        "OMOP_DB_NAME": config.db_name,
+        "OMOP_DB_USER": config.db_user,
+        "OMOP_DB_PASSWORD": config.db_password,
+        "OMOP_DB_HOST": config.db_host,
+        "OMOP_DB_PORT": str(config.db_port),
+    }
+
+def _validate_table_name(table_name: str) -> bool:
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table_name))
 
 async def create_omop_schema(sandbox_id: str) -> dict:
     """
@@ -38,7 +39,7 @@ async def create_omop_schema(sandbox_id: str) -> dict:
     """
     try:
         code = _get_script_content("create_schema.py")
-        result = sandbox_manager.execute_code(sandbox_id, code)
+        result = sandbox_manager.execute_code(sandbox_id, code, env=_db_env())
         return {
             "success": result.get("exit_code") == 0,
             "output": result.get("output", ""),
@@ -58,10 +59,9 @@ async def load_synthea_to_postgres(sandbox_id: str, csv_directory: str = "synthe
     """
     try:
         base_code = _get_script_content("load_synthea.py")
-        # Inject CSV_DIRECTORY override
-        code = f"import os\nos.environ['CSV_DIRECTORY'] = '{csv_directory}'\n" + base_code
-        
-        result = sandbox_manager.execute_code(sandbox_id, code)
+        env = _db_env()
+        env["CSV_DIRECTORY"] = csv_directory
+        result = sandbox_manager.execute_code(sandbox_id, base_code, env=env)
         return {
             "success": result.get("exit_code") == 0,
             "output": result.get("output", ""),
@@ -81,10 +81,9 @@ async def analyze_omop_data(sandbox_id: str, analysis_type: str = "basic") -> di
     """
     try:
         base_code = _get_script_content("analyze.py")
-        # Inject ANALYSIS_TYPE
-        code = f"import os\nos.environ['ANALYSIS_TYPE'] = '{analysis_type}'\n" + base_code
-        
-        result = sandbox_manager.execute_code(sandbox_id, code)
+        env = _db_env()
+        env["ANALYSIS_TYPE"] = analysis_type
+        result = sandbox_manager.execute_code(sandbox_id, base_code, env=env)
         return {
             "success": result.get("exit_code") == 0,
             "output": result.get("output", ""),
@@ -106,16 +105,20 @@ async def llm_dataframe_operation(sandbox_id: str, operation: str, table_name: s
     # This one still uses dynamic code generation so we keep it inline or move to a generalized script
     # For now, keeping inline to match current behavior but modularized
     # Actually, let's keep it inline for now as it's very dynamic
-    code = f'''
+    if not _validate_table_name(table_name):
+        return {"success": False, "error": "Invalid table name"}
+
+    code = '''
 import pandas as pd
 import sys
 import json
 import os
 from sqlalchemy import create_engine
 try:
-    engine = create_engine(f"postgresql://{config.db_user}:{config.db_password}@{config.db_host}:{config.db_port}/{config.db_name}")
+    engine = create_engine(f"postgresql://{os.environ['OMOP_DB_USER']}:{os.environ['OMOP_DB_PASSWORD']}@{os.environ['OMOP_DB_HOST']}:{os.environ['OMOP_DB_PORT']}/{os.environ['OMOP_DB_NAME']}")
+    table_name = os.environ.get("OMOP_TABLE_NAME", "person")
     df = pd.read_sql(f"SELECT * FROM omop_cdm.{table_name}", engine)
-    operation = "{operation}".lower()
+    operation = os.environ.get("LLM_OPERATION", "").lower()
     
     result = {{}}
     if "count" in operation:
@@ -140,7 +143,10 @@ except Exception as e:
     print(f"ERROR: {{str(e)}}")
     sys.exit(1)
 '''
-    result = sandbox_manager.execute_code(sandbox_id, code)
+    env = _db_env()
+    env["OMOP_TABLE_NAME"] = table_name
+    env["LLM_OPERATION"] = operation
+    result = sandbox_manager.execute_code(sandbox_id, code, env=env)
     return {
         "success": result.get("exit_code") == 0,
         "output": result.get("output", ""),

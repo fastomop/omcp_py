@@ -32,8 +32,9 @@ Before any code reaches the container, it passes through the **Code Validator**.
 
 If code passes validation, it runs in a locked-down Docker container.
 
--   **Network Isolation**: `network_mode="none"`
+-   **Network Isolation (Default)**: `network_mode="none"`
     -   The container has **no network interface** other than loopback. It cannot access the internet or the host network.
+    -   To opt into network access for database use, set `SANDBOX_NETWORK` (or `SANDBOX_NETWORK=auto` to attach to the detected compose network).
 -   **User Isolation**: `user="sandboxuser"` (UID 1000)
     -   Processes run as a non-root user. Even if a breakout occurs, the attacker has limited permissions on the host.
 -   **Resource Limits**:
@@ -43,7 +44,7 @@ If code passes validation, it runs in a locked-down Docker container.
 
 ### 3. Filesystem Security Layer
 
--   **Read-Only Root**: `read_only=True`
+-   **Read-Only Root (Default)**: `read_only=True`
     -   The entire root filesystem is mounted read-only. Hackers cannot install persistent malware or modify system binaries.
 -   **Tmpfs Mounts**:
     -   Writable directories are limited to `tmpfs` (RAM disks) mounted at specific locations (e.g., `/tmp`). These are wiped instantly when the container stops.
@@ -66,9 +67,14 @@ If code passes validation, it runs in a locked-down Docker container.
 | **File Tampering** | Prevented by Read-only filesystem. |
 | **Credential Theft** | DB Credentials injected as Env Vars only at runtime, never stored on disk. |
 
+## 🔧 Local Execution Guard
+
+Local (non-sandbox) execution is disabled by default. If you use the legacy `RunPythonTool`, set `OMCP_ALLOW_LOCAL_EXECUTION=true` to opt in.
+
 ## 🔧 Security Measures for OMOP
 
 When dealing with healthcare data (OMOP):
 
--   **Credential Injection**: Database passwords are NOT embedded in the Python code strings. They are passed as environment variables (`OMOP_DB_PASSWORD`) specifically to the container running the query.
+-   **Credential Injection**: Database passwords are NOT embedded in Python code strings. They are passed as environment variables (`OMOP_DB_PASSWORD`) to the container running the query.
 -   **Fast Path Security**: The "Fast Path" (direct query) tool is intended for **read-only** operations. (Implementation note: In production, this should connect via a read-only database user).
+    -   Raw `WHERE` clauses are disabled by default; use structured `filters` or set `ALLOW_UNSAFE_SQL=true` to opt in.

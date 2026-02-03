@@ -17,6 +17,9 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Set working directory
+WORKDIR /app
+
 # Install Python packages using UV
 COPY requirements.txt .
 RUN uv pip install --no-cache-dir -r requirements.txt
@@ -24,11 +27,8 @@ RUN uv pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Set working directory
-WORKDIR /app
-
 # Expose port for HTTP server (if using Flask version)
 EXPOSE 8000
 
-# Run the Flask sandbox server
-CMD ["python", "sandbox_server.py"]
+# Run the MCP sandbox server
+CMD ["python", "src/omcp_py/main.py"]

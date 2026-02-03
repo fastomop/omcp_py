@@ -161,6 +161,12 @@ async def execute_python_code(sandbox_id: str, python_code: Optional[str] = None
     """
     try:
         code_text = python_code if python_code is not None else code
+        if not isinstance(code_text, str) or not code_text.strip():
+            return {
+                "success": False,
+                "error": "Python code must be a non-empty string",
+                "exit_code": 1,
+            }
 
         # Execute the code in the specified sandbox with enhanced security
         # Enable code validation for user-provided code
@@ -222,13 +228,14 @@ async def install_package(sandbox_id: str, package: str, timeout: Optional[int] 
             }
         
         code = f"""
+import os
 import subprocess
 import sys
 try:
-    result = subprocess.run([sys.executable, '-m', 'pip', 'install'] + '''{package}'''.split(), 
-                           timeout={timeout},
-                           capture_output=True,
-                           text=True)
+    os.makedirs("/sandbox/packages", exist_ok=True)
+    cmd = [sys.executable, "-m", "pip", "install", "--no-input", "--disable-pip-version-check", "--target", "/sandbox/packages"]
+    cmd += {package!r}.split()
+    result = subprocess.run(cmd, timeout={timeout}, capture_output=True, text=True)
     if result.returncode == 0:
         print({{"status": "success", "message": "Package(s) installed successfully", "stdout": result.stdout}})
     else:

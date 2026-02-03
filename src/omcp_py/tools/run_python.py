@@ -1,6 +1,7 @@
 from mcp import Tool, ToolInput, ToolOutput
 from omcp_py.utils.omcp_py import execute_python_code
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,9 @@ class RunPythonTool(Tool):
             # Delegates to sandbox manager path via mcp server tools (expected to be proxied)
             # Here we just return a placeholder; the server's execute_python_code handles sandbox execution
             return ToolOutput({"status": "delegated"})
+
+        if os.getenv("OMCP_ALLOW_LOCAL_EXECUTION", "false").lower() != "true":
+            return ToolOutput({"error": "Local execution is disabled. Set OMCP_ALLOW_LOCAL_EXECUTION=true to enable."})
 
         result = execute_python_code(code)
         return ToolOutput({

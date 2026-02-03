@@ -29,7 +29,7 @@ Tools are split into domain-specific modules for better maintainability.
 Handles container lifecycle. It interacts directly with the `SandboxManager` singleton.
 
 #### OMOP Tools (`omop_tools.py`)
-Handles healthcare logic. Instead of embedding SQL/Python strings, it loads scripts from `src/omcp_py/scripts/omop/` and injects them into the sandbox.
+Handles healthcare logic. Instead of embedding SQL/Python strings, it loads scripts from `src/omcp_py/scripts/omop/` and injects them into the sandbox. Database credentials and runtime options are passed as environment variables to the container.
 
 ```python
 # Script injection pattern
@@ -71,8 +71,8 @@ The `SandboxManager` class orchestrates Docker containers. Key implementation de
 container = self.client.containers.run(
     self.config.docker_image,
     detach=True,
-    network_mode="none",  # Security: No network
-    read_only=True,       # Security: Read-only FS
+    network_mode="none",  # Security: No network (configurable)
+    read_only=True,       # Security: Read-only FS (configurable)
     ...
 )
 ```

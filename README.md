@@ -76,7 +76,7 @@ graph TD
    docker-compose up -d
    ```
 
-## � Usage
+## 🚀 Usage
 
 Start the MCP server:
 
@@ -100,17 +100,21 @@ python3 src/omcp_py/main.py
 | **Query** | `query_omop_table` | **Fast Path** direct database read |
 | | `query_duckdb` | Query local DuckDB files |
 
+Note: `install_package` installs into `/sandbox/packages`. The sandbox runtime adds this path to `PYTHONPATH` for subsequent executions. Network access is required for package downloads.
+
 ## 🔒 Security Model
 
 - **Code Validation**: User code is scanned for dangerous imports (`os`, `subprocess`) before execution.
 - **Container Isolation**:
-  - `network_mode="none"`: No internet access.
-  - `read_only=True`: Filesystem cannot be modified.
+  - `network_mode="none"` (default): No internet access.
+  - `read_only=True` (default): Filesystem cannot be modified.
   - `cap_drop=["ALL"]`: All Linux capabilities removed.
   - `pids_limit=50`: Prevents fork bombs.
 - **Resource Limits**: Configurable CPU and Memory caps.
 
-## � Project Structure
+To enable database access from sandboxes, set `SANDBOX_NETWORK` to your Docker network (or `auto` to attach to the compose network if detected). For any network access, you must opt in explicitly.
+
+## 📁 Project Structure
 
 ```
 src/omcp_py/

@@ -2,25 +2,26 @@ import sys
 import uuid
 sys.path.insert(0, "src")
 
-from omcp_py.config import get_config
-from omcp_py.sandbox_manager import SandboxManager
+import pytest
+from conftest import require_integration
 import docker
 
-config = get_config()
-manager = SandboxManager(config)
 
-# Create sandbox with network access
-sandbox_id = str(uuid.uuid4())
-client = docker.DockerClient(base_url="unix:///var/run/docker.sock")
+def test_network_access_with_explicit_network():
+    require_integration()
+    try:
+        client = docker.DockerClient(base_url="unix:///var/run/docker.sock")
+        client.ping()
+    except Exception:
+        pytest.skip("Docker is not available")
 
-try:
-    # Create container with network access
+    sandbox_id = str(uuid.uuid4())
     container = client.containers.run(
         "python:3.11-slim",
         command=["sleep", "infinity"],
         detach=True,
         name=f"omcp-sandbox-{sandbox_id}",
-        network="omcp_py_default",  # Connect to the same network as the database
+        network="omcp_py_default",
         mem_limit="512m",
         cpu_period=100000,
         cpu_quota=50000,
@@ -34,11 +35,9 @@ try:
             "/sandbox": "rw,noexec,nosuid,size=500M"
         }
     )
-    
-    print(f"Sandbox created: {sandbox_id}")
-    
-    # Test network connectivity
-    db_code = """
+
+    try:
+        db_code = """
 import socket
 try:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -52,14 +51,8 @@ try:
 except Exception as e:
     print(f"Network test failed: {e}")
 """
-    
-    result = container.exec_run(["python3", "-c", db_code])
-    print("Network test result:", result.output.decode())
-    
-    # Clean up
-    container.stop(timeout=1)
-    container.remove()
-    print("Test completed")
-    
-except Exception as e:
-    print(f"Error: {e}")
+        result = container.exec_run(["python3", "-c", db_code])
+        assert b"SUCCESS" in result.output
+    finally:
+        container.stop(timeout=1)
+        container.remove()

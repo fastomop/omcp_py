@@ -1,37 +1,35 @@
 import asyncio
+import pytest
+from conftest import require_integration
 from mcp import MCPClient
 
-async def main():
-    # Connect to the FastMCP server via stdio
-    client = await MCPClient.create_stdio()
 
-    # 1. Create a sandbox
-    print("Creating sandbox...")
-    resp = await client.call_tool("create_sandbox", {})
-    assert resp["success"], f"Failed to create sandbox: {resp}"
-    sandbox_id = resp["sandbox_id"]
-    print(f"Sandbox created: {sandbox_id}")
+def test_sandbox_duckdb_via_mcp():
+    require_integration()
 
-    # 2. Install duckdb in the sandbox
-    print("Installing duckdb in sandbox...")
-    resp = await client.call_tool("install_package", {"sandbox_id": sandbox_id, "package": "duckdb"})
-    print(f"Install output: {resp['output']}")
-    
-    # 3. Execute code to query the DuckDB file
-    code = '''
+    async def _run():
+        try:
+            client = await MCPClient.create_stdio()
+        except Exception:
+            pytest.skip("MCP server not available over stdio")
+
+        resp = await client.call_tool("create_sandbox", {})
+        assert resp["success"], f"Failed to create sandbox: {resp}"
+        sandbox_id = resp["sandbox_id"]
+
+        try:
+            resp = await client.call_tool("install_package", {"sandbox_id": sandbox_id, "package": "duckdb"})
+            assert resp["success"] or resp.get("exit_code") == 0
+
+            code = '''
 import duckdb
 con = duckdb.connect('/data/synthea.duckdb')
 result = con.execute('SELECT COUNT(*) FROM person').fetchall()
 print(result)
 '''
-    print("Executing code in sandbox...")
-    resp = await client.call_tool("execute_python_code", {"sandbox_id": sandbox_id, "code": code})
-    print(f"Execution output: {resp['output']}")
+            resp = await client.call_tool("execute_python_code", {"sandbox_id": sandbox_id, "code": code})
+            assert "[]" not in resp.get("output", "")
+        finally:
+            await client.call_tool("remove_sandbox", {"sandbox_id": sandbox_id, "force": True})
 
-    # 4. Clean up: remove the sandbox
-    print("Removing sandbox...")
-    await client.call_tool("remove_sandbox", {"sandbox_id": sandbox_id, "force": True})
-    print("Done.")
-
-if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(_run())

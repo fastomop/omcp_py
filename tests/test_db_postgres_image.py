@@ -2,25 +2,28 @@ import sys
 import uuid
 sys.path.insert(0, "src")
 
-from omcp_py.config import get_config
-from omcp_py.sandbox_manager import SandboxManager
+import pytest
 import docker
+from conftest import require_integration
+from omcp_py.config import get_config
 
-config = get_config()
-manager = SandboxManager(config)
 
-# Create sandbox with network access using a different base image
-sandbox_id = str(uuid.uuid4())
-client = docker.DockerClient(base_url="unix:///var/run/docker.sock")
+def test_db_with_postgres_image():
+    require_integration()
+    try:
+        client = docker.DockerClient(base_url="unix:///var/run/docker.sock")
+        client.ping()
+    except Exception:
+        pytest.skip("Docker is not available")
 
-try:
-    # Create container with network access and pre-installed psycopg2
+    config = get_config()
+    sandbox_id = str(uuid.uuid4())
     container = client.containers.run(
-        "postgres:15",  # Use postgres image which has psycopg2
+        "postgres:15",
         command=["python3", "-c", "import time; time.sleep(1000)"],
         detach=True,
         name=f"omcp-sandbox-{sandbox_id}",
-        network="omcp_py_default",  # Connect to the same network as the database
+        network="omcp_py_default",
         mem_limit="512m",
         cpu_period=100000,
         cpu_quota=50000,
@@ -34,27 +37,17 @@ try:
             "/sandbox": "rw,noexec,nosuid,size=500M"
         }
     )
-    
-    print(f"Sandbox created: {sandbox_id}")
-    
-    # Test database connection
-    # Use values from repo config but use 'db' as host when running inside the docker network
-    db_user = config.db_user
-    db_pass = config.db_password
-    db_name = config.db_name
-    db_host = 'db'
-    db_port = config.db_port
 
-    db_code = f"""
+    try:
+        db_code = f"""
 import psycopg2
-
 try:
     conn = psycopg2.connect(
-        dbname={db_name!r},
-        user={db_user!r},
-        password={db_pass!r},
-        host={db_host!r},
-        port={db_port!r}
+        dbname={config.db_name!r},
+        user={config.db_user!r},
+        password={config.db_password!r},
+        host={'db'!r},
+        port={config.db_port!r}
     )
     cur = conn.cursor()
     cur.execute("SELECT version()")
@@ -62,17 +55,11 @@ try:
     print("PostgreSQL version:", cur.fetchone())
     cur.close()
     conn.close()
-    except Exception as e:
-        print("Database connection failed:", e)
-"""
-    
-    result = container.exec_run(["python3", "-c", db_code])
-    print("DB test result:", result.output.decode())
-    
-    # Clean up
-    container.stop(timeout=1)
-    container.remove()
-    print("Test completed")
-    
 except Exception as e:
-    print(f"Error: {e}")
+    print("Database connection failed:", e)
+"""
+        result = container.exec_run(["python3", "-c", db_code])
+        assert b"SUCCESS" in result.output
+    finally:
+        container.stop(timeout=1)
+        container.remove()

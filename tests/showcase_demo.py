@@ -37,7 +37,7 @@ def check_server_status():
     print_step(1, "Checking Server Status")
     
     try:
-        result = subprocess.run(['pgrep', '-f', 'server_fastmcp.py'], 
+        result = subprocess.run(['pgrep', '-f', 'omcp_py/main.py'], 
                               capture_output=True, text=True)
         if result.returncode == 0:
             print_success("FastMCP server is running!")
@@ -45,7 +45,7 @@ def check_server_status():
             return True
         else:
             print_error("FastMCP server is not running")
-            print_info("Start it with: uv run server_fastmcp.py")
+            print_info("Start it with: uv run src/omcp_py/main.py")
             return False
     except Exception as e:
         print_error(f"Error checking server: {e}")
@@ -56,7 +56,7 @@ def check_docker_status():
     print_step(2, "Checking Docker Status")
     
     try:
-        result = subprocess.run(['sudo', 'docker', 'ps'], 
+        result = subprocess.run(['docker', 'ps'], 
                               capture_output=True, text=True)
         if result.returncode == 0:
             print_success("Docker is running!")
@@ -75,8 +75,7 @@ def show_project_structure():
     
     print_info("Key files in the project:")
     files = [
-        "server_fastmcp.py - Main FastMCP server",
-        "sandbox_server.py - Flask sandbox server",
+        "src/omcp_py/main.py - Main FastMCP server",
         "src/omcp_py/ - Core sandbox implementation",
         "Dockerfile - Docker image for sandboxes",
         "pyproject.toml - Project dependencies",
@@ -153,7 +152,7 @@ def show_mcp_inspector():
                 print_info("🌐 Web UI typically available at: http://127.0.0.1:6274")
         else:
             print_info("To start MCP Inspector:")
-            print("   npx @modelcontextprotocol/inspector uv run server_fastmcp.py")
+            print("   npx @modelcontextprotocol/inspector uv run src/omcp_py/main.py")
             print_info("Then open: http://127.0.0.1:6274")
     except Exception as e:
         print_error(f"Error checking inspector: {e}")
@@ -182,11 +181,11 @@ def show_architecture():
     print_info("Architecture Overview:")
     print("   🖥️  MCP Client (Agent)")
     print("        ↓ (JSON-RPC over stdio)")
-    print("   🚀 FastMCP Server (server_fastmcp.py)")
+    print("   🚀 FastMCP Server (src/omcp_py/main.py)")
     print("        ↓ (Docker API)")
     print("   🐳 Docker Containers (Python Sandboxes)")
     print("        ↓ (Flask HTTP)")
-    print("   🔧 Sandbox Server (sandbox_server.py)")
+    print("   🔧 Sandbox Server (Docker container)")
     
     print_info("Data Flow:")
     print("   1. Agent sends MCP tool call")
@@ -226,10 +225,10 @@ def show_demo_instructions():
     
     print_info("To demonstrate the sandbox system:")
     print("   1. Start the FastMCP server:")
-    print("      uv run server_fastmcp.py")
+    print("      uv run src/omcp_py/main.py")
     print("")
     print("   2. Launch MCP Inspector:")
-    print("      npx @modelcontextprotocol/inspector uv run server_fastmcp.py")
+    print("      npx @modelcontextprotocol/inspector uv run src/omcp_py/main.py")
     print("")
     print("   3. Open web UI:")
     print("      http://127.0.0.1:6274")

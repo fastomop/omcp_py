@@ -12,10 +12,10 @@ from datetime import datetime, timedelta
 import logging
 import docker.models
 import docker.models.containers
-import requests
 import os
+import threading
 from dotenv import load_dotenv, find_dotenv
-from omcp_py.core.db import get_session, Sandbox as DBSandbox
+from omcp_py.core.db import get_session, Sandbox as DBSandbox, create_tables
 
 load_dotenv(find_dotenv())
 
@@ -27,6 +27,7 @@ class SandboxManager:
     def __init__(self, config):
         self.config = config
         self.client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock"))
+        self._lock = threading.RLock()
         # Try to detect a docker-compose project network to attach sandboxes to.
         # This allows the sandbox to resolve compose service names like 'db'.
         self.compose_network = None
@@ -58,6 +59,7 @@ class SandboxManager:
         self.sandboxes: Dict[str, dict] = {}
         self.db_available = True
         try:
+            create_tables()
             self._load_sandboxes_from_db()
         except Exception as e:
             logger.warning(f"Database unavailable, running without persistence: {e}")
@@ -110,16 +112,19 @@ class SandboxManager:
         # Remove sandboxes that haven't been used within timeout period
         now = datetime.now()
         to_remove = []
-        for sandbox_id, sandbox in self.sandboxes.items():
-            if now - sandbox["last_used"] > timedelta(seconds=self.config.sandbox_timeout):
-                to_remove.append(sandbox_id)
+        with self._lock:
+            for sandbox_id, sandbox in self.sandboxes.items():
+                if now - sandbox["last_used"] > timedelta(seconds=self.config.sandbox_timeout):
+                    to_remove.append(sandbox_id)
         for sandbox_id in to_remove:
             self.remove_sandbox(sandbox_id)
 
     def create_sandbox(self) -> str:
         """Create a new isolated Python sandbox container with enhanced security."""
-        if len(self.sandboxes) >= self.config.max_sandboxes:
-            raise RuntimeError("Maximum number of sandboxes reached")
+        self._cleanup_old_sandboxes()
+        with self._lock:
+            if len(self.sandboxes) >= self.config.max_sandboxes:
+                raise RuntimeError("Maximum number of sandboxes reached")
         
         sandbox_id = str(uuid.uuid4())
         
@@ -144,22 +149,27 @@ class SandboxManager:
             )
 
             # Respect config-driven read-only flag
-            if not getattr(self.config, "sandbox_read_only", False):
-                # if not read-only, don't set read_only to True
-                pass
-            else:
+            if getattr(self.config, "sandbox_read_only", False):
                 run_kwargs["read_only"] = True
 
-            # Allow containers to reach the host via host-gateway if requested
-            if getattr(self.config, "allow_host_gateway", False):
-                # Create a small user-defined network with --add-host mapping if needed
-                # Docker SDK allows passing "extra_hosts"
-                run_kwargs.setdefault("extra_hosts", {})["host.docker.internal"] = "host-gateway"
-
-            # Optionally specify network mode or join compose network if detected
+            # Network controls: default to no network unless explicitly enabled
             explicit_net = getattr(self.config, "sandbox_network", None)
+            allow_host_gateway = getattr(self.config, "allow_host_gateway", False)
             if explicit_net:
-                run_kwargs["network_mode"] = explicit_net
+                if explicit_net == "auto":
+                    if self.compose_network:
+                        run_kwargs["network_mode"] = self.compose_network
+                    else:
+                        logger.warning("SANDBOX_NETWORK=auto set but no compose network detected; using no network")
+                        run_kwargs["network_mode"] = "none"
+                else:
+                    run_kwargs["network_mode"] = explicit_net
+            else:
+                run_kwargs["network_mode"] = "bridge" if allow_host_gateway else "none"
+
+            # Allow containers to reach the host via host-gateway if requested and network is enabled
+            if allow_host_gateway and run_kwargs.get("network_mode") != "none":
+                run_kwargs.setdefault("extra_hosts", {})["host.docker.internal"] = "host-gateway"
 
             try:
                 container = self.client.containers.run(**run_kwargs)
@@ -168,22 +178,14 @@ class SandboxManager:
                 run_kwargs['image'] = 'python:3.11-slim'
                 container = self.client.containers.run(**run_kwargs)
 
-            # If compose network detected and not already in network_mode, connect container to that network
-            if not explicit_net and self.compose_network:
-                try:
-                    net = self.client.networks.get(self.compose_network)
-                    net.connect(container)
-                except Exception:
-                    # best-effort, ignore failures
-                    pass
-            
             # Track sandbox metadata
-            self.sandboxes[sandbox_id] = {
-                "container": container,
-                "created_at": datetime.now(),
-                "last_used": datetime.now()
-            }
-            self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
+            with self._lock:
+                self.sandboxes[sandbox_id] = {
+                    "container": container,
+                    "created_at": datetime.now(),
+                    "last_used": datetime.now()
+                }
+                self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
             
             logger.info(f"Created new sandbox {sandbox_id}")
             return sandbox_id
@@ -194,22 +196,47 @@ class SandboxManager:
     
     def remove_sandbox(self, sandbox_id: str):
         """Remove a sandbox container and clean up resources."""
-        if sandbox_id not in self.sandboxes:
-            return
+        with self._lock:
+            sandbox = self.sandboxes.get(sandbox_id)
+            if not sandbox:
+                return
+            container = sandbox.get("container")
         
         try:
             # Stop and remove the Docker container
-            container:docker.models.containers.Container = self.sandboxes[sandbox_id]["container"]
             if container:
                 container.stop(timeout=1)
                 container.remove()
-            del self.sandboxes[sandbox_id]
+            with self._lock:
+                del self.sandboxes[sandbox_id]
             self._remove_sandbox_from_db(sandbox_id)
             logger.info(f"Removed sandbox {sandbox_id}")
         except Exception as e:
             logger.error(f"Failed to remove sandbox {sandbox_id}: {e}")
-    
-    def execute_code(self, sandbox_id: str, code: str, timeout: Optional[int] = None, validate: bool = False) -> dict:
+
+    def _merge_env(self, env: Optional[Dict[str, str]]) -> Dict[str, str]:
+        merged: Dict[str, str] = {}
+        if env:
+            merged.update({str(k): str(v) for k, v in env.items()})
+
+        packages_path = "/sandbox/packages"
+        current_py_path = merged.get("PYTHONPATH")
+        if current_py_path:
+            if packages_path not in current_py_path.split(":"):
+                merged["PYTHONPATH"] = f"{packages_path}:{current_py_path}"
+        else:
+            merged["PYTHONPATH"] = packages_path
+
+        return merged
+
+    def execute_code(
+        self,
+        sandbox_id: str,
+        code: str,
+        timeout: Optional[int] = None,
+        validate: bool = False,
+        env: Optional[Dict[str, str]] = None,
+    ) -> dict:
         """Execute Python code in the specified sandbox container and return a structured dict.
 
         Args:
@@ -217,12 +244,16 @@ class SandboxManager:
             code: The Python code to execute
             timeout: Execution timeout in seconds (default: None)
             validate: Whether to validate code for dangerous patterns (default: False)
+            env: Optional environment variables for the execution
 
         Returns:
             Dict with keys: output (str), exit_code (int), error (str|None)
         """
-        if sandbox_id not in self.sandboxes:
-            raise ValueError(f"Sandbox {sandbox_id} not found")
+        with self._lock:
+            sandbox = self.sandboxes.get(sandbox_id)
+            if not sandbox:
+                raise ValueError(f"Sandbox {sandbox_id} not found")
+            container = sandbox.get("container")
         
         # Validation
         if validate:
@@ -235,9 +266,9 @@ class SandboxManager:
                     "error": f"Security Violation: {error_msg}"
                 }
         
-        container = self.sandboxes[sandbox_id]["container"]
-        self.sandboxes[sandbox_id]["last_used"] = datetime.now()
-        self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
+        with self._lock:
+            self.sandboxes[sandbox_id]["last_used"] = datetime.now()
+            self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
         
         try:
             # Construct command with timeout enforcement
@@ -250,7 +281,7 @@ class SandboxManager:
                 cmd = ["timeout", "-k", "5", str(timeout)] + cmd
 
             # Execute code
-            exec_result = container.exec_run(cmd, demux=True)
+            exec_result = container.exec_run(cmd, demux=True, environment=self._merge_env(env))
 
             # Parse result (docker-py returned tuple or object depending on version/mock)
             if isinstance(exec_result, tuple) and len(exec_result) == 2:
@@ -258,8 +289,12 @@ class SandboxManager:
                 stdout_b, stderr_b = streams
             else:
                 exit_code = getattr(exec_result, "exit_code", 0)
-                stdout_b = getattr(exec_result, "output", b"")
-                stderr_b = b""
+                output_obj = getattr(exec_result, "output", b"")
+                if isinstance(output_obj, tuple) and len(output_obj) == 2:
+                    stdout_b, stderr_b = output_obj
+                else:
+                    stdout_b = output_obj
+                    stderr_b = b""
 
             output = stdout_b or b""
             stderr = stderr_b or b""
@@ -288,11 +323,13 @@ class SandboxManager:
 
     def list_sandboxes(self) -> list:
         """Return list of all active sandboxes with metadata."""
-        return [
-            {
-                "id": sandbox_id,
-                "created_at": sandbox["created_at"].isoformat(),
-                "last_used": sandbox["last_used"].isoformat()
-            }
-            for sandbox_id, sandbox in self.sandboxes.items()
-        ] 
+        self._cleanup_old_sandboxes()
+        with self._lock:
+            return [
+                {
+                    "id": sandbox_id,
+                    "created_at": sandbox["created_at"].isoformat(),
+                    "last_used": sandbox["last_used"].isoformat()
+                }
+                for sandbox_id, sandbox in self.sandboxes.items()
+            ]

@@ -14,10 +14,19 @@ The OMCP Python Sandbox uses environment-based configuration with sensible defau
 |----------|------|---------|-------------|
 | `SANDBOX_TIMEOUT` | `int` | `300` | Sandbox timeout in seconds |
 | `MAX_SANDBOXES` | `int` | `10` | Maximum number of concurrent sandboxes |
-| `DOCKER_IMAGE` | `str` | `python:3.11-slim` | Base Docker image for sandboxes |
+| `DOCKER_IMAGE` | `str` | `fastomop/sandbox:python-3.11-slim` | Base Docker image for sandboxes |
 | `SANDBOX_BASE_URL` | `str` | `None` | Base URL for sandbox services (optional) |
 | `DEBUG` | `bool` | `false` | Enable debug mode |
 | `LOG_LEVEL` | `str` | `INFO` | Logging level |
+| `SANDBOX_ALLOW_HOST_GATEWAY` | `bool` | `false` | Allow `host.docker.internal` mapping |
+| `SANDBOX_READ_ONLY` | `bool` | `true` | Run sandboxes with read-only root filesystem |
+| `SANDBOX_NETWORK` | `str` | `None` | Attach sandboxes to a Docker network (`auto` uses compose network) |
+| `ALLOW_UNSAFE_SQL` | `bool` | `false` | Allow raw `WHERE` clauses in `query_omop_table` |
+| `DB_HOST` | `str` | `db` | Postgres host for OMOP tools |
+| `DB_PORT` | `int` | `5432` | Postgres port |
+| `DB_USER` | `str` | `omcp` | Postgres user |
+| `DB_PASSWORD` | `str` | `postgres` | Postgres password |
+| `DB_NAME` | `str` | `omcp` | Postgres database |
 
 ### Docker Configuration
 
@@ -27,14 +36,10 @@ The OMCP Python Sandbox uses environment-based configuration with sensible defau
 | `DOCKER_TLS_VERIFY` | `bool` | `false` | Enable Docker TLS verification |
 | `DOCKER_CERT_PATH` | `str` | `None` | Path to Docker certificates |
 
-### Security Configuration
+### Docker SDK Notes
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `SANDBOX_MEMORY_LIMIT` | `str` | `512m` | Memory limit per sandbox |
-| `SANDBOX_CPU_LIMIT` | `int` | `50` | CPU limit percentage per sandbox |
-| `SANDBOX_USER_ID` | `int` | `1000` | User ID for sandbox containers |
-| `SANDBOX_TMPFS_SIZE` | `str` | `100M` | Temporary filesystem size |
+The Docker SDK respects standard Docker environment variables such as `DOCKER_HOST`,
+`DOCKER_TLS_VERIFY`, and `DOCKER_CERT_PATH`.
 
 ## 📝 Configuration File
 
@@ -46,7 +51,7 @@ Create a `.env` file in the project root with your configuration:
 # Core Configuration
 SANDBOX_TIMEOUT=300
 MAX_SANDBOXES=10
-DOCKER_IMAGE=python:3.11-slim
+DOCKER_IMAGE=fastomop/sandbox:python-3.11-slim
 DEBUG=false
 LOG_LEVEL=INFO
 
@@ -54,11 +59,18 @@ LOG_LEVEL=INFO
 DOCKER_HOST=unix://var/run/docker.sock
 DOCKER_TLS_VERIFY=false
 
-# Security Configuration
-SANDBOX_MEMORY_LIMIT=512m
-SANDBOX_CPU_LIMIT=50
-SANDBOX_USER_ID=1000
-SANDBOX_TMPFS_SIZE=100M
+# Sandbox Runtime
+SANDBOX_ALLOW_HOST_GATEWAY=false
+SANDBOX_READ_ONLY=true
+# SANDBOX_NETWORK=auto
+ALLOW_UNSAFE_SQL=false
+
+# Database Configuration
+DB_HOST=db
+DB_PORT=5432
+DB_USER=omcp
+DB_PASSWORD=postgres
+DB_NAME=omcp
 
 # Optional: Sandbox Services
 SANDBOX_BASE_URL=http://localhost:8080
@@ -72,13 +84,15 @@ A `sample.env` file is provided in the project root:
 # Sandbox Configuration
 SANDBOX_TIMEOUT=300
 MAX_SANDBOXES=10
-DOCKER_IMAGE=python:3.11-slim
+DOCKER_IMAGE=fastomop/sandbox:python-3.11-slim
 
 # Logging
 DEBUG=false
 LOG_LEVEL=INFO
 
-# Security
+# Sandbox Runtime
+SANDBOX_ALLOW_HOST_GATEWAY=false
+SANDBOX_READ_ONLY=true
 ```
 
 ## 🏗️ Configuration Implementation
@@ -97,6 +111,15 @@ class SandboxConfig:
     sandbox_base_url: Optional[str]
     debug: bool
     log_level: str
+    allow_host_gateway: bool
+    sandbox_read_only: bool
+    sandbox_network: Optional[str]
+    allow_unsafe_sql: bool
+    db_host: str
+    db_port: int
+    db_user: str
+    db_password: str
+    db_name: str
 ```
 
 ### Configuration Loading
@@ -107,10 +130,19 @@ def get_config() -> SandboxConfig:
     return SandboxConfig(
         sandbox_timeout=int(os.getenv("SANDBOX_TIMEOUT", "300")),
         max_sandboxes=int(os.getenv("MAX_SANDBOXES", "10")),
-        docker_image=os.getenv("DOCKER_IMAGE", "python:3.11-slim"),
+        docker_image=os.getenv("DOCKER_IMAGE", "fastomop/sandbox:python-3.11-slim"),
         sandbox_base_url=os.getenv("SANDBOX_BASE_URL"),
         debug=os.getenv("DEBUG", "false").lower() == "true",
-        log_level=os.getenv("LOG_LEVEL", "INFO")
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        allow_host_gateway=os.getenv("SANDBOX_ALLOW_HOST_GATEWAY", "false").lower() == "true",
+        sandbox_read_only=os.getenv("SANDBOX_READ_ONLY", "true").lower() == "true",
+        sandbox_network=os.getenv("SANDBOX_NETWORK") or None,
+        allow_unsafe_sql=os.getenv("ALLOW_UNSAFE_SQL", "false").lower() == "true",
+        db_host=os.getenv("DB_HOST", "db"),
+        db_port=int(os.getenv("DB_PORT", "5432")),
+        db_user=os.getenv("DB_USER", "omcp"),
+        db_password=os.getenv("DB_PASSWORD", "postgres"),
+        db_name=os.getenv("DB_NAME", "omcp"),
     )
 ```
 
@@ -165,7 +197,7 @@ export MAX_SANDBOXES=50
 **Purpose**: Specifies the base Docker image for sandboxes
 
 **Options**:
-- **`python:3.11-slim`** (default) - Minimal Python image
+- **`fastomop/sandbox:python-3.11-slim`** (default) - Project-provided sandbox image
 - **`python:3.12-slim`** - Latest Python version
 - **`python:3.10-slim`** - Older Python version
 - **Custom images** - Your own base images
@@ -223,55 +255,7 @@ export LOG_LEVEL=WARNING
 
 ## 🔒 Security Configuration
 
-### Memory Limits (`SANDBOX_MEMORY_LIMIT`)
-
-**Purpose**: Limits memory usage per sandbox
-
-**Values**:
-- **Minimum**: `128m`
-- **Recommended**: `512m`
-- **Maximum**: `2g` (depending on system)
-
-**Usage**:
-```bash
-# Conservative memory limit
-export SANDBOX_MEMORY_LIMIT=256m
-
-# Generous memory limit for data analysis
-export SANDBOX_MEMORY_LIMIT=1g
-```
-
-### CPU Limits (`SANDBOX_CPU_LIMIT`)
-
-**Purpose**: Limits CPU usage per sandbox
-
-**Values**:
-- **Minimum**: `10` (10% of one core)
-- **Recommended**: `50` (50% of one core)
-- **Maximum**: `100` (full core)
-
-**Usage**:
-```bash
-# Conservative CPU limit
-export SANDBOX_CPU_LIMIT=25
-
-# Generous CPU limit for computation
-export SANDBOX_CPU_LIMIT=75
-```
-
-### User ID (`SANDBOX_USER_ID`)
-
-**Purpose**: Specifies the user ID for sandbox containers
-
-**Values**:
-- **Recommended**: `1000` (non-root user)
-- **Custom**: Any non-root UID
-
-**Usage**:
-```bash
-# Use custom user ID
-export SANDBOX_USER_ID=2000
-```
+Sandbox security defaults (network isolation, read-only filesystem, dropped capabilities) are enabled by default and can be adjusted via `SANDBOX_NETWORK`, `SANDBOX_ALLOW_HOST_GATEWAY`, and `SANDBOX_READ_ONLY`. Resource limits are currently set in code and can be adjusted by editing `SandboxManager.create_sandbox` if needed.
 
 ## 🐳 Docker Configuration
 
@@ -317,12 +301,6 @@ export DOCKER_CERT_PATH=/path/to/certs
 # Increase sandbox limit
 export MAX_SANDBOXES=50
 
-# Reduce memory per sandbox
-export SANDBOX_MEMORY_LIMIT=256m
-
-# Reduce CPU per sandbox
-export SANDBOX_CPU_LIMIT=25
-
 # Shorter timeout for faster cleanup
 export SANDBOX_TIMEOUT=180
 ```
@@ -331,12 +309,6 @@ export SANDBOX_TIMEOUT=180
 ```bash
 # Fewer sandboxes with more resources
 export MAX_SANDBOXES=5
-
-# More memory per sandbox
-export SANDBOX_MEMORY_LIMIT=1g
-
-# More CPU per sandbox
-export SANDBOX_CPU_LIMIT=75
 
 # Longer timeout for complex tasks
 export SANDBOX_TIMEOUT=600
@@ -375,8 +347,9 @@ OMOP_DB_MAX_OVERFLOW = 20
 
 ```bash
 # Enhanced security for clinical data
-export SANDBOX_MEMORY_LIMIT=1g
 export SANDBOX_TIMEOUT=1800
+export SANDBOX_READ_ONLY=true
+export SANDBOX_NETWORK=auto
 export LOG_LEVEL=INFO
 ```
 
@@ -426,8 +399,6 @@ export SANDBOX_TIMEOUT=300
 export MAX_SANDBOXES=5
 export DEBUG=true
 export LOG_LEVEL=DEBUG
-export SANDBOX_MEMORY_LIMIT=512m
-export SANDBOX_CPU_LIMIT=50
 ```
 
 ### Production Environment
@@ -438,8 +409,6 @@ export SANDBOX_TIMEOUT=600
 export MAX_SANDBOXES=50
 export DEBUG=false
 export LOG_LEVEL=WARNING
-export SANDBOX_MEMORY_LIMIT=1g
-export SANDBOX_CPU_LIMIT=75
 ```
 
 ### Testing Environment
@@ -450,8 +419,6 @@ export SANDBOX_TIMEOUT=60
 export MAX_SANDBOXES=2
 export DEBUG=true
 export LOG_LEVEL=DEBUG
-export SANDBOX_MEMORY_LIMIT=256m
-export SANDBOX_CPU_LIMIT=25
 ```
 
 ## 🔍 Configuration Monitoring
@@ -464,7 +431,7 @@ The system logs configuration on startup:
 2024-01-01 12:00:00 - omcp_py.config - INFO - Configuration loaded:
   SANDBOX_TIMEOUT=300
   MAX_SANDBOXES=10
-  DOCKER_IMAGE=python:3.11-slim
+  DOCKER_IMAGE=fastomop/sandbox:python-3.11-slim
   DEBUG=false
   LOG_LEVEL=INFO
 ```

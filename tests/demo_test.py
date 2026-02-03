@@ -4,9 +4,10 @@ Simple demo script to test the OMCP Python Sandbox Server
 """
 
 import subprocess
-import json
-import time
-import os
+import pytest
+from conftest import require_integration
+
+require_integration()
 
 def test_server_status():
     print("🚀 OMCP Python Sandbox Server Demo")
@@ -14,7 +15,7 @@ def test_server_status():
     
     # Check if the server process is running
     try:
-        result = subprocess.run(['pgrep', '-f', 'server_fastmcp.py'], 
+        result = subprocess.run(['pgrep', '-f', 'omcp_py/main.py'],
                               capture_output=True, text=True)
         if result.returncode == 0:
             print("✅ FastMCP server is running!")
@@ -37,14 +38,14 @@ def test_server_status():
 
         else:
             print("❌ FastMCP server is not running")
-            print("💡 Start it with: python server_fastmcp.py")
+            print("💡 Start it with: python src/omcp_py/main.py")
     except Exception as e:
         print(f"❌ Error checking server status: {e}")
 
 def show_docker_status():
     print("\n🐳 Docker Status:")
     try:
-        result = subprocess.run(['sudo', 'docker', 'ps'], 
+        result = subprocess.run(['docker', 'ps'],
                               capture_output=True, text=True)
         if result.returncode == 0:
             print("✅ Docker is running")
@@ -57,9 +58,9 @@ def show_docker_status():
             else:
                 print("   No active containers")
         else:
-            print("❌ Docker is not running")
+            pytest.skip("Docker is not running or not accessible")
     except Exception as e:
-        print(f"❌ Error checking Docker: {e}")
+        pytest.skip(f"Docker check failed: {e}")
 
 if __name__ == "__main__":
     test_server_status()

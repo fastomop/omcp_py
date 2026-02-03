@@ -503,7 +503,8 @@ Directly query an OMOP table from the PostgreSQL database (Fast Path).
 - `table_name` (required, string): Name of the OMOP table (e.g., 'person')
 - `limit` (optional, int): Maximum rows to return (default: 100, max: 1000)
 - `columns` (optional, list[str]): Specific columns to select
-- `where` (optional, string): SQL WHERE clause (e.g., "gender_concept_id = 8507")
+- `filters` (optional, object): Column/value filters (equality only), e.g., `{"gender_concept_id": 8507}`
+- `where` (optional, string): Raw SQL WHERE clause (disabled by default; enable with `ALLOW_UNSAFE_SQL=true`)
 
 **Returns:**
 ```json
@@ -531,7 +532,7 @@ result = await mcp.query_omop_table(
 result = await mcp.query_omop_table(
     table_name="person",
     columns=["person_id", "year_of_birth"],
-    where="year_of_birth > 1980"
+    filters={"year_of_birth": 1980}
 )
 ```
 

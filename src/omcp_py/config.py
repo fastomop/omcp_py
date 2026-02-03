@@ -27,6 +27,7 @@ class SandboxConfig:
     allow_host_gateway: bool
     sandbox_read_only: bool
     sandbox_network: Optional[str]
+    allow_unsafe_sql: bool
     # Database config
     db_host: str
     db_port: int
@@ -45,9 +46,10 @@ def get_config() -> SandboxConfig:
         debug=os.getenv("DEBUG", "false").lower() == "true",
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         # Sandbox runtime options (use host-gateway to allow containers to reach host)
-        allow_host_gateway=os.getenv("SANDBOX_ALLOW_HOST_GATEWAY", "true").lower() == "true",
-        sandbox_read_only=os.getenv("SANDBOX_READ_ONLY", "false").lower() == "true",
-        sandbox_network=os.getenv("SANDBOX_NETWORK", None),
+        allow_host_gateway=os.getenv("SANDBOX_ALLOW_HOST_GATEWAY", "false").lower() == "true",
+        sandbox_read_only=os.getenv("SANDBOX_READ_ONLY", "true").lower() == "true",
+        sandbox_network=os.getenv("SANDBOX_NETWORK") or None,
+        allow_unsafe_sql=os.getenv("ALLOW_UNSAFE_SQL", "false").lower() == "true",
         # Defaults chosen to match the included docker image/service configuration
         db_host=os.getenv("DB_HOST", "db"),
         db_port=int(os.getenv("DB_PORT", "5432")),

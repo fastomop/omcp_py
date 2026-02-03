@@ -44,8 +44,11 @@ sandbox_tools.register(mcp)
 omop_tools.register(mcp)
 query_tools.register(mcp)
 
-# Main entry point for the FastMCP server
-if __name__ == "__main__":
+def main() -> None:
+    """Main entry point for the FastMCP server."""
     logger.info("Starting FastMCP sandbox server...")
     mcp.run(transport="stdio")
+
+if __name__ == "__main__":
+    main()
  
