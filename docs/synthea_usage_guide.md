@@ -74,7 +74,8 @@ This creates:
 # Load CSV files into PostgreSQL
 await client.call_tool("load_synthea_to_postgres", {
     "sandbox_id": sandbox_id,
-    "csv_directory": "/synthetic_data"
+    "csv_directory": "/synthetic_data",
+    "chunk_size": 10000
 })
 ```
 

@@ -1,7 +1,7 @@
 
 import ast
 import logging
-from typing import List, Tuple
+from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,8 @@ class CodeValidator:
     BLOCKED_IMPORTS = {
         'os', 'sys', 'subprocess', 'shutil', 'socket', 'requests', 'urllib',
         'http', 'ftplib', 'poplib', 'imaplib', 'smtplib', 'telnetlib',
-        'ctypes', 'pickle', 'marshal', 'shelve', 'dbm', 'sqlite3'
+        'ctypes', 'pickle', 'marshal', 'shelve', 'dbm', 'sqlite3',
+        'importlib', 'builtins'
     }
     
     # Safe subset of os/sys functionality that might be needed
@@ -60,8 +61,11 @@ class CodeValidator:
             # Check for dangerous built-ins
             if isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name):
-                    if node.func.id in ('exec', 'eval', 'compile', 'open'):
+                    if node.func.id in ('exec', 'eval', 'compile', 'open', '__import__'):
                         return False, f"Use of '{node.func.id}' is restricted."
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr in ('__import__', 'import_module'):
+                        return False, f"Use of '{node.func.attr}' is restricted."
                         
         return True, ""
 

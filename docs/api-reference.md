@@ -272,6 +272,7 @@ Loads Synthea CSV files into PostgreSQL OMOP database.
 **Parameters:**
 - `sandbox_id` (required, string): The unique identifier of the sandbox
 - `csv_directory` (optional, string): Directory containing CSV files (default: "synthetic_data")
+- `chunk_size` (optional, int): Chunk size for batch inserts (default: 5000)
 
 **Returns:**
 ```json
@@ -297,7 +298,8 @@ result = await mcp.load_synthea_to_postgres(sandbox_id="uuid-string")
 # Load from custom directory
 result = await mcp.load_synthea_to_postgres(
     sandbox_id="uuid-string",
-    csv_directory="/custom/data/path"
+    csv_directory="/custom/data/path",
+    chunk_size=10000
 )
 ```
 

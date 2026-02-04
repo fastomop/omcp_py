@@ -14,6 +14,7 @@ def main():
         db_port = os.environ.get("OMOP_DB_PORT", "5432")
         
         csv_directory = os.environ.get("CSV_DIRECTORY", "synthetic_data")
+        chunk_size = int(os.environ.get("OMOP_LOAD_CHUNKSIZE", "5000"))
 
         # Connect to PostgreSQL
         url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
@@ -72,7 +73,15 @@ def main():
                 
                 # Load to PostgreSQL
                 table_name = mapping['table'].split('.')[-1]
-                df.to_sql(table_name, engine, schema='omop_cdm', if_exists='append', index=False, method='multi')
+                df.to_sql(
+                    table_name,
+                    engine,
+                    schema='omop_cdm',
+                    if_exists='append',
+                    index=False,
+                    method='multi',
+                    chunksize=chunk_size
+                )
                 print(f"Loaded {len(df)} rows into {mapping['table']}")
             else:
                 print(f"File not found: {filepath}")
