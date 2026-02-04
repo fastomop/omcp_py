@@ -98,9 +98,17 @@ python3 src/omcp_py/main.py
 | | `load_synthea_to_postgres` | Import synthetic patient data |
 | | `analyze_omop_data` | Run pre-built analytics |
 | **Query** | `query_omop_table` | **Fast Path** direct database read |
-| | `query_duckdb` | Query local DuckDB files |
+| | `query_duckdb` | Query local DuckDB files (uses `DB_PATH` if set) |
+| | `Get_information_Schema` | List available schemas/tables (DuckDB or Postgres) |
+| | `Select_Query` | Execute read-only SQL (DuckDB if `DB_PATH` set, else Postgres) |
 
 Note: `install_package` installs into `/sandbox/packages`. The sandbox runtime adds this path to `PYTHONPATH` for subsequent executions. Network access is required for package downloads.
+
+### DuckDB Configuration
+
+Set `DB_PATH` to point to a DuckDB file to enable DuckDB-backed queries for `query_duckdb`, `Get_information_Schema`, and `Select_Query`. If `DB_PATH` is not set, `Select_Query` and `Get_information_Schema` use the configured Postgres connection.
+
+By default, `query_duckdb` falls back to `synthetic_data/synthea.duckdb` when `DB_PATH` is unset.
 
 ## 🔒 Security Model
 
@@ -112,7 +120,7 @@ Note: `install_package` installs into `/sandbox/packages`. The sandbox runtime a
   - `pids_limit=50`: Prevents fork bombs.
 - **Resource Limits**: Configurable CPU and Memory caps.
 
-To enable database access from sandboxes, set `SANDBOX_NETWORK` to your Docker network (or `auto` to attach to the compose network if detected). For any network access, you must opt in explicitly.
+To enable database access from sandboxes, set `SANDBOX_NETWORK` to your Docker network (or `auto` to attach to the compose network if detected). If `SANDBOX_NETWORK` is unset and a compose network is detected, the sandbox will auto-attach when `DB_HOST` is not `localhost`/`127.0.0.1`.
 
 ## 📁 Project Structure
 

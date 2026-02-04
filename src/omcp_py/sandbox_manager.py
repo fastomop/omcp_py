@@ -165,7 +165,17 @@ class SandboxManager:
                 else:
                     run_kwargs["network_mode"] = explicit_net
             else:
-                run_kwargs["network_mode"] = "bridge" if allow_host_gateway else "none"
+                # If a compose network is detected and DB_HOST is not localhost,
+                # attach to the compose network to allow DB access by service name.
+                db_host = (getattr(self.config, "db_host", "") or "").lower()
+                if self.compose_network and db_host not in ("localhost", "127.0.0.1"):
+                    run_kwargs["network_mode"] = self.compose_network
+                    logger.info(
+                        "No SANDBOX_NETWORK set; attaching sandbox to compose network '%s' for DB access",
+                        self.compose_network,
+                    )
+                else:
+                    run_kwargs["network_mode"] = "bridge" if allow_host_gateway else "none"
 
             # Allow containers to reach the host via host-gateway if requested and network is enabled
             if allow_host_gateway and run_kwargs.get("network_mode") != "none":

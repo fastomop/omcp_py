@@ -1,6 +1,8 @@
 
 import logging
+import os
 import re
+from pathlib import Path
 import duckdb
 from typing import Optional, List, Any, Dict
 from sqlalchemy import text
@@ -8,6 +10,27 @@ from omcp_py.core.globals import config
 from omcp_py.core.db import get_engine
 
 logger = logging.getLogger(__name__)
+
+def _resolve_duckdb_path(default: Optional[str] = None) -> Optional[str]:
+    """
+    Resolve DuckDB path from environment or fallback default.
+    """
+    env_path = os.getenv("DB_PATH")
+    if env_path:
+        return str(Path(env_path).expanduser())
+    return default
+
+def _is_readonly_sql(sql: str) -> bool:
+    """Basic guard: allow SELECT/WITH only unless ALLOW_UNSAFE_SQL is enabled."""
+    if getattr(config, "allow_unsafe_sql", False):
+        return True
+    sql_stripped = sql.strip().lower()
+    if not (sql_stripped.startswith("select") or sql_stripped.startswith("with")):
+        return False
+    # Block obvious multi-statement or comment injection
+    if ";" in sql or "--" in sql or "/*" in sql:
+        return False
+    return True
 
 async def query_duckdb(sql: str) -> dict:
     """
@@ -18,7 +41,12 @@ async def query_duckdb(sql: str) -> dict:
         Dict with 'success', 'columns', 'result', and 'error' keys.
     """
     try:
-        with duckdb.connect('synthetic_data/synthea.duckdb') as con:
+        if not _is_readonly_sql(sql):
+            return {"success": False, "error": "Only read-only SELECT queries are allowed. Set ALLOW_UNSAFE_SQL=true to override."}
+        duckdb_path = _resolve_duckdb_path(default="synthetic_data/synthea.duckdb")
+        if duckdb_path not in (None, ":memory:") and not Path(duckdb_path).exists():
+            return {"success": False, "error": f"DuckDB file not found at {duckdb_path}"}
+        with duckdb.connect(duckdb_path) as con:
             result = con.execute(sql).fetchall()
             columns = [desc[0] for desc in con.description]
         return {"success": True, "columns": columns, "result": result}
@@ -104,7 +132,80 @@ async def query_omop_table(
         logger.error(f"Failed to query OMOP table: {e}")
         return {"success": False, "error": str(e)}
 
+async def Get_information_Schema() -> Dict[str, Any]:
+    """
+    Return available schemas and tables.
+    Compatible with agents expecting Get_information_Schema().
+    """
+    try:
+        duckdb_path = _resolve_duckdb_path()
+        if duckdb_path:
+            if duckdb_path not in (None, ":memory:") and not Path(duckdb_path).exists():
+                return {"success": False, "error": f"DuckDB file not found at {duckdb_path}"}
+            with duckdb.connect(duckdb_path) as con:
+                rows = con.execute(
+                    """
+                    SELECT table_schema, table_name
+                    FROM information_schema.tables
+                    WHERE table_type = 'BASE TABLE'
+                    AND table_schema NOT IN ('information_schema', 'pg_catalog')
+                    ORDER BY table_schema, table_name
+                    """
+                ).fetchall()
+                columns = [desc[0] for desc in con.description]
+            return {"success": True, "columns": columns, "result": rows}
+
+        engine = get_engine()
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    SELECT table_schema, table_name
+                    FROM information_schema.tables
+                    WHERE table_type = 'BASE TABLE'
+                    AND table_schema NOT IN ('information_schema', 'pg_catalog')
+                    ORDER BY table_schema, table_name
+                    """
+                )
+            )
+            rows = result.fetchall()
+            columns = list(result.keys())
+        return {"success": True, "columns": columns, "result": rows}
+    except Exception as e:
+        logger.error(f"Failed to get information schema: {e}")
+        return {"success": False, "error": str(e)}
+
+async def Select_Query(query: str) -> Dict[str, Any]:
+    """
+    Execute an arbitrary read-only SQL query against DuckDB (if DB_PATH is set)
+    or PostgreSQL otherwise. Compatible with agents expecting Select_Query().
+    """
+    try:
+        if not _is_readonly_sql(query):
+            return {"success": False, "error": "Only read-only SELECT queries are allowed. Set ALLOW_UNSAFE_SQL=true to override."}
+
+        duckdb_path = _resolve_duckdb_path()
+        if duckdb_path:
+            if duckdb_path not in (None, ":memory:") and not Path(duckdb_path).exists():
+                return {"success": False, "error": f"DuckDB file not found at {duckdb_path}"}
+            with duckdb.connect(duckdb_path) as con:
+                result = con.execute(query).fetchall()
+                columns = [desc[0] for desc in con.description]
+            return {"success": True, "columns": columns, "result": result}
+
+        engine = get_engine()
+        with engine.connect() as conn:
+            result = conn.execute(text(query))
+            rows = result.fetchall()
+            columns = list(result.keys())
+        return {"success": True, "columns": columns, "result": rows}
+    except Exception as e:
+        logger.error(f"Failed to execute query: {e}")
+        return {"success": False, "error": str(e)}
+
 def register(mcp):
     """Register query tools with the MCP instance."""
     mcp.tool()(query_duckdb)
     mcp.tool()(query_omop_table)
+    mcp.tool()(Get_information_Schema)
+    mcp.tool()(Select_Query)
