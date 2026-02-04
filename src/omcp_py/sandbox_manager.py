@@ -181,6 +181,15 @@ class SandboxManager:
             if allow_host_gateway and run_kwargs.get("network_mode") != "none":
                 run_kwargs.setdefault("extra_hosts", {})["host.docker.internal"] = "host-gateway"
 
+            # Warn if sandbox has no network but DB host isn't localhost
+            db_host = (getattr(self.config, "db_host", "") or "").lower()
+            if run_kwargs.get("network_mode") == "none" and db_host not in ("localhost", "127.0.0.1"):
+                logger.warning(
+                    "Sandbox network is disabled; DB access to host '%s' will fail. "
+                    "Set SANDBOX_NETWORK=auto or a Docker network name to enable DB access.",
+                    db_host,
+                )
+
             try:
                 container = self.client.containers.run(**run_kwargs)
             except docker.errors.ImageNotFound:

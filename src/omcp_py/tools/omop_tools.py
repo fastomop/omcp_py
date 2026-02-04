@@ -2,6 +2,7 @@
 import logging
 import re
 from pathlib import Path
+from typing import Optional, Dict
 from omcp_py.core.globals import sandbox_manager, config
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ def _get_script_content(script_name: str) -> str:
         
     return script_path.read_text()
 
-def _db_env() -> dict:
+def _db_env() -> Dict[str, str]:
     return {
         "OMOP_DB_NAME": config.db_name,
         "OMOP_DB_USER": config.db_user,
@@ -29,6 +30,17 @@ def _db_env() -> dict:
 def _validate_table_name(table_name: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table_name))
 
+def _execute_script(
+    sandbox_id: str,
+    script_name: str,
+    extra_env: Optional[Dict[str, str]] = None,
+) -> dict:
+    code = _get_script_content(script_name)
+    env = _db_env()
+    if extra_env:
+        env.update({k: str(v) for k, v in extra_env.items()})
+    return sandbox_manager.execute_code(sandbox_id, code, env=env)
+
 async def create_omop_schema(sandbox_id: str) -> dict:
     """
     Create OMOP CDM schema in PostgreSQL database from within the sandbox.
@@ -38,8 +50,7 @@ async def create_omop_schema(sandbox_id: str) -> dict:
         Dict with 'output' and 'exit_code' or 'error'.
     """
     try:
-        code = _get_script_content("create_schema.py")
-        result = sandbox_manager.execute_code(sandbox_id, code, env=_db_env())
+        result = _execute_script(sandbox_id, "create_schema.py")
         return {
             "success": result.get("exit_code") == 0,
             "output": result.get("output", ""),
@@ -50,7 +61,11 @@ async def create_omop_schema(sandbox_id: str) -> dict:
         logger.error(f"Failed to create OMOP schema: {e}")
         return {"success": False, "error": str(e)}
 
-async def load_synthea_to_postgres(sandbox_id: str, csv_directory: str = "synthetic_data") -> dict:
+async def load_synthea_to_postgres(
+    sandbox_id: str,
+    csv_directory: str = "synthetic_data",
+    chunk_size: Optional[int] = None,
+) -> dict:
     """
     Load Synthea CSV files into PostgreSQL OMOP database from within the sandbox.
     Args:
@@ -58,10 +73,10 @@ async def load_synthea_to_postgres(sandbox_id: str, csv_directory: str = "synthe
         csv_directory: Directory containing Synthea CSV files.
     """
     try:
-        base_code = _get_script_content("load_synthea.py")
-        env = _db_env()
-        env["CSV_DIRECTORY"] = csv_directory
-        result = sandbox_manager.execute_code(sandbox_id, base_code, env=env)
+        extra_env = {"CSV_DIRECTORY": csv_directory}
+        if chunk_size:
+            extra_env["OMOP_LOAD_CHUNKSIZE"] = str(chunk_size)
+        result = _execute_script(sandbox_id, "load_synthea.py", extra_env=extra_env)
         return {
             "success": result.get("exit_code") == 0,
             "output": result.get("output", ""),
@@ -80,10 +95,11 @@ async def analyze_omop_data(sandbox_id: str, analysis_type: str = "basic") -> di
         analysis_type: Type of analysis ('basic', 'demographics', 'conditions').
     """
     try:
-        base_code = _get_script_content("analyze.py")
-        env = _db_env()
-        env["ANALYSIS_TYPE"] = analysis_type
-        result = sandbox_manager.execute_code(sandbox_id, base_code, env=env)
+        result = _execute_script(
+            sandbox_id,
+            "analyze.py",
+            extra_env={"ANALYSIS_TYPE": analysis_type},
+        )
         return {
             "success": result.get("exit_code") == 0,
             "output": result.get("output", ""),
