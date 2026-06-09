@@ -7,17 +7,13 @@ using Docker containers with security restrictions and resource limits.
 
 import uuid
 import docker
+from docker.types import Ulimit
 from typing import Dict, Optional
 from datetime import datetime, timedelta
 import logging
-import docker.models
-import docker.models.containers
 import os
 import threading
-from dotenv import load_dotenv, find_dotenv
 from omcp_py.core.db import get_session, Sandbox as DBSandbox, create_tables
-
-load_dotenv(find_dotenv())
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +23,11 @@ class SandboxManager:
     def __init__(self, config):
         self.config = config
         self.client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock"))
+        try:
+            self.client.ping()
+        except docker.errors.DockerException as e:
+            logger.error("Docker daemon is unavailable: %s", e)
+            raise
         self._lock = threading.RLock()
         # Try to detect a docker-compose project network to attach sandboxes to.
         # This allows the sandbox to resolve compose service names like 'db'.
@@ -139,9 +140,11 @@ class SandboxManager:
                 cpu_period=100000,        # CPU limits
                 cpu_quota=50000,
                 remove=True,              # Auto-remove when stopped
-                user=1000,       # User isolation
-                cap_drop=["ALL"],         # Drop all capabilities
+                user=1000,                # User isolation; image should provide a non-root UID
+                cap_drop=["ALL"],        # Drop all capabilities
                 security_opt=["no-new-privileges"],  # Prevent privilege escalation
+                pids_limit=50,
+                ulimits=[Ulimit(name="nproc", soft=50, hard=100)],
                 tmpfs={                   # Temporary filesystem mounts
                     "/tmp": "rw,noexec,nosuid,size=100M",
                     "/sandbox": "rw,noexec,nosuid,size=500M"
@@ -290,17 +293,36 @@ class SandboxManager:
             self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
         
         try:
-            # Construct command with timeout enforcement
-            cmd = ["python3", "-c", code]
-            
+            exec_env = self._merge_env(env)
+            exec_env["SANDBOX_USER_CODE"] = code
             if timeout:
-                # Use 'timeout' command to kill process if it runs too long
-                # timeout -k <kill_timeout> <duration> <command>
-                # We add a small kill buffer
-                cmd = ["timeout", "-k", "5", str(timeout)] + cmd
+                exec_env["SANDBOX_EXEC_TIMEOUT"] = str(timeout)
 
-            # Execute code
-            exec_result = container.exec_run(cmd, demux=True, environment=self._merge_env(env))
+            wrapper = (
+                'import os, sys, signal, traceback\n'
+                'code = os.environ.get("SANDBOX_USER_CODE", "")\n'
+                'timeout = int(os.environ.get("SANDBOX_EXEC_TIMEOUT", "0"))\n'
+                'if timeout > 0:\n'
+                '    def _timeout_handler(signum, frame):\n'
+                '        raise TimeoutError(f"Execution timed out after {timeout} seconds")\n'
+                '    signal.signal(signal.SIGALRM, _timeout_handler)\n'
+                '    signal.alarm(timeout)\n'
+                'try:\n'
+                '    compiled = compile(code, "<sandbox>", "exec")\n'
+                '    exec(compiled, {"__name__": "__main__", "__package__": None})\n'
+                'except TimeoutError as e:\n'
+                '    sys.stderr.write(str(e))\n'
+                '    sys.exit(124)\n'
+                'except Exception:\n'
+                '    traceback.print_exc(file=sys.stderr)\n'
+                '    sys.exit(1)\n'
+                'finally:\n'
+                '    if timeout > 0:\n'
+                '        signal.alarm(0)\n'
+            )
+
+            cmd = ["python3", "-u", "-c", wrapper]
+            exec_result = container.exec_run(cmd, demux=True, environment=exec_env)
 
             # Parse result (docker-py returned tuple or object depending on version/mock)
             if isinstance(exec_result, tuple) and len(exec_result) == 2:
@@ -330,7 +352,7 @@ class SandboxManager:
 
             error_text = None
             if exit_code != 0:
-                if exit_code == 124: # timeout command exit code
+                if exit_code == 124:
                     error_text = f"Execution timed out after {timeout} seconds"
                 else:
                     error_text = stderr_text.strip() or f"Exit code {exit_code}"

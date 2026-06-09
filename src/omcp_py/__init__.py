@@ -1,2 +1,6 @@
+__all__ = ["main"]
+
+
 def main() -> None:
-    print("Hello from pysandbox!")
+    """Legacy package entrypoint placeholder."""
+    return None

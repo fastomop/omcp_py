@@ -2,7 +2,6 @@
 import asyncio
 import logging
 from typing import Optional, Dict, Any, List
-import requests
 from omcp_py.core.globals import sandbox_manager, config
 
 logger = logging.getLogger(__name__)
@@ -191,12 +190,6 @@ async def execute_python_code(sandbox_id: str, python_code: Optional[str] = None
             "error": error,
             "exit_code": exit_code,
         }
-    except requests.exceptions.ReadTimeout:
-        logger.error(f"Code execution timed out in sandbox {sandbox_id}")
-        return {
-            "success": False,
-            "error": "Code execution timed out"
-        }
     except Exception as e:
         logger.error(f"Failed to execute code in sandbox {sandbox_id}: {e}")
         return {
@@ -255,12 +248,6 @@ except Exception as e:
             "output": result.get("output"),
             "exit_code": result.get("exit_code"),
             "error": result.get("error")
-        }
-    except requests.exceptions.ReadTimeout:
-        logger.error(f"Package installation timed out in sandbox {sandbox_id}")
-        return {
-            "success": False,
-            "error": "Package installation timed out"
         }
     except Exception as e:
         logger.error(f"Failed to install package {package} in sandbox {sandbox_id}: {e}")
