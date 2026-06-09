@@ -26,7 +26,10 @@ class SandboxManager:
     
     def __init__(self, config):
         self.config = config
-        self.client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock"))
+        self.client = docker.DockerClient(
+            base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock"),
+            timeout=10  # 10 second timeout for Docker API calls
+        )
         self._lock = threading.RLock()
         # Try to detect a docker-compose project network to attach sandboxes to.
         # This allows the sandbox to resolve compose service names like 'db'.
@@ -122,9 +125,6 @@ class SandboxManager:
     def create_sandbox(self) -> str:
         """Create a new isolated Python sandbox container with enhanced security."""
         self._cleanup_old_sandboxes()
-        with self._lock:
-            if len(self.sandboxes) >= self.config.max_sandboxes:
-                raise RuntimeError("Maximum number of sandboxes reached")
         
         sandbox_id = str(uuid.uuid4())
         
@@ -197,8 +197,13 @@ class SandboxManager:
                 run_kwargs['image'] = 'python:3.11-slim'
                 container = self.client.containers.run(**run_kwargs)
 
-            # Track sandbox metadata
+            # Track sandbox metadata - double-check max inside lock (fixes race condition)
             with self._lock:
+                if len(self.sandboxes) >= self.config.max_sandboxes:
+                    container.stop(timeout=1)
+                    container.remove()
+                    raise RuntimeError("Maximum number of sandboxes reached")
+                
                 self.sandboxes[sandbox_id] = {
                     "container": container,
                     "created_at": datetime.now(),

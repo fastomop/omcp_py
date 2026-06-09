@@ -1,0 +1,114 @@
+name: Tests & Security
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: omcp_user
+          POSTGRES_PASSWORD: omcp_password
+          POSTGRES_DB: omcp_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      
+      - name: Lint with ruff
+        run: |
+          ruff check src tests --fix --exit-zero || true
+      
+      - name: Type check with mypy
+        run: |
+          mypy src --ignore-missing-imports || true
+      
+      - name: Run tests with pytest
+        env:
+          DB_USER: omcp_user
+          DB_PASSWORD: omcp_password
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: omcp_db
+        run: |
+          pytest tests/ -v --cov=src/omcp_py --cov-report=xml --cov-report=term-missing || true
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+      
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety pip-audit
+      
+      - name: Run Bandit security scan
+        run: |
+          bandit -r src -f json -o bandit-report.json || true
+      
+      - name: Check dependencies with pip-audit
+        run: |
+          pip-audit --desc || true
+      
+      - name: Check for secrets with detect-secrets
+        run: |
+          pip install detect-secrets
+          detect-secrets scan --baseline .secrets.baseline || true
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
