@@ -50,7 +50,7 @@ async def query_duckdb(sql: str) -> dict:
             result = con.execute(sql).fetchall()
             columns = [desc[0] for desc in con.description]
         return {"success": True, "columns": columns, "result": result}
-    except Exception as e:
+    except (duckdb.Error, OSError, RuntimeError, ValueError) as e:
         return {"success": False, "error": str(e)}
 
 def _is_valid_identifier(value: str) -> bool:
@@ -120,7 +120,7 @@ async def query_omop_table(
             "count": len(data),
             "data": data
         }
-    except Exception as e:
+    except (duckdb.Error, OSError, RuntimeError, ValueError) as e:
         logger.error(f"Failed to query OMOP table: {e}")
         return {"success": False, "error": str(e)}
 
@@ -163,7 +163,7 @@ async def Get_information_Schema() -> Dict[str, Any]:
             rows = result.fetchall()
             columns = list(result.keys())
         return {"success": True, "columns": columns, "result": rows}
-    except Exception as e:
+    except (duckdb.Error, OSError, RuntimeError, ValueError) as e:
         logger.error(f"Failed to get information schema: {e}")
         return {"success": False, "error": str(e)}
 
@@ -191,7 +191,7 @@ async def Select_Query(query: str) -> Dict[str, Any]:
             rows = result.fetchall()
             columns = list(result.keys())
         return {"success": True, "columns": columns, "result": rows}
-    except Exception as e:
+    except (duckdb.Error, OSError, RuntimeError, ValueError) as e:
         logger.error(f"Failed to execute query: {e}")
         return {"success": False, "error": str(e)}
 
