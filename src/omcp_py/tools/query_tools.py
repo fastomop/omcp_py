@@ -60,7 +60,6 @@ async def query_omop_table(
     table_name: str,
     limit: int = 100,
     columns: Optional[List[str]] = None,
-    where: Optional[str] = None,
     filters: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
@@ -73,8 +72,11 @@ async def query_omop_table(
         table_name: Name of the OMOP table (e.g., 'person', 'visit_occurrence')
         limit: Maximum number of rows to return (default: 100, max: 1000)
         columns: List of columns to select (default: all)
-        where: Optional raw SQL WHERE clause (disabled by default)
-        filters: Optional column/value filters (equality only)
+        filters: Optional column/value filters using equality only (safe from SQL injection)
+    
+    Note:
+        Raw WHERE clauses are not supported for security reasons.
+        Use the 'filters' parameter with column=value pairs instead.
     """
     try:
         # Security check: simple table name validation
@@ -94,7 +96,6 @@ async def query_omop_table(
         query_str = f"SELECT {cols} FROM omop_cdm.{table_name}"
 
         params: Dict[str, Any] = {}
-        has_where = False
         if filters:
             clauses = []
             for idx, (key, value) in enumerate(filters.items()):
@@ -105,15 +106,6 @@ async def query_omop_table(
                 params[param_key] = value
             if clauses:
                 query_str += " WHERE " + " AND ".join(clauses)
-                has_where = True
-
-        if where:
-            if not getattr(config, "allow_unsafe_sql", False):
-                return {"success": False, "error": "Raw WHERE clause is disabled. Use filters instead or set ALLOW_UNSAFE_SQL=true."}
-            # Basic SQL injection check - still unsafe, but blocks obvious multi-statement injection
-            if ";" in where or "--" in where or "/*" in where:
-                return {"success": False, "error": "Invalid WHERE clause"}
-            query_str += f" {'AND' if has_where else 'WHERE'} {where}"
             
         # Hard cap on limit
         safe_limit = min(max(1, limit), 1000)
