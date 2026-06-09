@@ -54,7 +54,7 @@ graph TD
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/omcp_py.git
+   git clone https://github.com/fastomop/omcp_py.git
    cd omcp_py
    ```
 
@@ -81,9 +81,9 @@ graph TD
 Start the MCP server:
 
 ```bash
-uv run src/omcp_py/main.py
+uv run omcp-sandbox
 # OR
-python3 src/omcp_py/main.py
+python3 -m omcp_py.main
 ```
 
 ### Available Tools
