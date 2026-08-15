@@ -7,7 +7,7 @@ for sandbox timeouts, limits, and logging settings.
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import FrozenSet, Optional
 from dotenv import load_dotenv
 
 # Load environment variables from .env file if it exists
@@ -28,6 +28,12 @@ class SandboxConfig:
     allow_host_gateway: bool
     sandbox_read_only: bool
     sandbox_network: Optional[str]
+    require_pinned_image: bool
+    execution_default_timeout: int
+    execution_max_timeout: int
+    execution_max_output_bytes: int
+    package_install_enabled: bool
+    package_allowlist: FrozenSet[str]
     # Query data-minimisation controls
     query_default_limit: int
     query_max_rows: int
@@ -41,6 +47,11 @@ class SandboxConfig:
 
 def get_config() -> SandboxConfig:
     """Load and return configuration from environment variables."""
+    package_allowlist = frozenset(
+        package.strip().lower().replace("_", "-")
+        for package in os.getenv("PACKAGE_ALLOWLIST", "").split(",")
+        if package.strip()
+    )
     return SandboxConfig(
         sandbox_timeout=int(os.getenv("SANDBOX_TIMEOUT", "300")),
         max_sandboxes=int(os.getenv("MAX_SANDBOXES", "10")),
@@ -53,6 +64,18 @@ def get_config() -> SandboxConfig:
         == "true",
         sandbox_read_only=os.getenv("SANDBOX_READ_ONLY", "true").lower() == "true",
         sandbox_network=os.getenv("SANDBOX_NETWORK") or None,
+        require_pinned_image=os.getenv("SANDBOX_REQUIRE_PINNED_IMAGE", "false").lower()
+        == "true",
+        execution_default_timeout=max(
+            1, int(os.getenv("EXECUTION_DEFAULT_TIMEOUT", "30"))
+        ),
+        execution_max_timeout=max(1, int(os.getenv("EXECUTION_MAX_TIMEOUT", "300"))),
+        execution_max_output_bytes=max(
+            1024, int(os.getenv("EXECUTION_MAX_OUTPUT_BYTES", "1048576"))
+        ),
+        package_install_enabled=os.getenv("PACKAGE_INSTALL_ENABLED", "false").lower()
+        == "true",
+        package_allowlist=package_allowlist,
         query_default_limit=max(1, int(os.getenv("QUERY_DEFAULT_LIMIT", "100"))),
         query_max_rows=max(1, int(os.getenv("QUERY_MAX_ROWS", "1000"))),
         # Defaults chosen to match the included docker image/service configuration

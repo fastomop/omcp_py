@@ -92,7 +92,7 @@ python3 -m omcp_py.main
 |---------------|-------|-------------|
 | **Sandbox** | `create_sandbox` | Create a new isolated environment |
 | | `execute_python_code` | Run secure Python code |
-| | `install_package` | Install PyPI packages safely |
+| | `install_package` | Install an explicitly allowlisted, pinned wheel when enabled |
 | | `list_sandboxes` | Manage active containers |
 | **OMOP** | `create_omop_schema` | Initialize healthcare database schema |
 | | `load_synthea_to_postgres` | Import synthetic patient data |
@@ -102,7 +102,10 @@ python3 -m omcp_py.main
 | | `Get_information_Schema` | List available schemas/tables (DuckDB or Postgres) |
 | | `Select_Query` | Execute read-only SQL (DuckDB if `DB_PATH` set, else Postgres) |
 
-Note: `install_package` installs into `/sandbox/packages`. The sandbox runtime adds this path to `PYTHONPATH` for subsequent executions. Network access is required for package downloads.
+`install_package` is disabled by default. Enabling it requires an explicit
+sandbox network and `PACKAGE_ALLOWLIST`; callers must request one exact
+`name==version` requirement. Installs use binary wheels only, skip transitive
+dependencies, and write to `/sandbox/packages`.
 
 ### DuckDB Configuration
 
@@ -123,10 +126,17 @@ Successful query responses include an `audit` object with a random query ID, UTC
   - `cap_drop=["ALL"]`: All Linux capabilities removed.
   - `pids_limit=50`: Prevents fork bombs.
 - **Resource Limits**: Configurable CPU and Memory caps.
+- **Host-Enforced Execution Policy**: Deadlines are enforced outside guest
+  Python, concurrent execution in one sandbox is rejected, and stdout/stderr
+  are capped. A timeout or output-limit violation destroys that sandbox.
 - **Database Safety**: Bounded result sets, parameterised OMOP filters, PostgreSQL read-only transactions, and read-only DuckDB connections with external access disabled.
 - **Deployment Requirement**: Run PostgreSQL tools with a least-privilege, read-only database role. SQL validation is defence in depth and does not replace database permissions.
 
-To enable database access from sandboxes, set `SANDBOX_NETWORK` to your Docker network (or `auto` to attach to the compose network if detected). If `SANDBOX_NETWORK` is unset and a compose network is detected, the sandbox will auto-attach when `DB_HOST` is not `localhost`/`127.0.0.1`.
+Sandboxes are networkless when `SANDBOX_NETWORK` is unset, regardless of
+detected Compose services. To enable database access, explicitly set a
+dedicated, restricted Docker network. Host networking and container-shared
+network modes are forbidden. Production deployments should pin
+`DOCKER_IMAGE` by digest and set `SANDBOX_REQUIRE_PINNED_IMAGE=true`.
 
 ## 📁 Project Structure
 

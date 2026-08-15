@@ -1,8 +1,34 @@
 import logging
+import re
 from typing import Optional, Dict, Any
 from omcp_py.core.globals import sandbox_manager, config
 
 logger = logging.getLogger(__name__)
+
+_PINNED_PACKAGE_RE = re.compile(
+    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"(?P<extras>\[[A-Za-z0-9._,-]+\])?"
+    r"==(?P<version>[A-Za-z0-9][A-Za-z0-9._+!-]*)$"
+)
+
+
+def _validate_package_requirement(package: str) -> Optional[str]:
+    """Validate one exact, allowlisted wheel requirement."""
+    if not config.package_install_enabled:
+        return "Package installation is disabled by policy"
+    if not config.sandbox_network or config.sandbox_network == "none":
+        return "Package installation requires an explicitly configured sandbox network"
+    if any(character.isspace() for character in package):
+        return "Exactly one pinned package requirement is allowed"
+
+    match = _PINNED_PACKAGE_RE.fullmatch(package)
+    if not match:
+        return "Package must use an exact name==version requirement"
+
+    normalized_name = match.group("name").lower().replace("_", "-")
+    if normalized_name not in config.package_allowlist:
+        return f"Package '{normalized_name}' is not in PACKAGE_ALLOWLIST"
+    return None
 
 
 async def ping() -> str:
@@ -190,6 +216,9 @@ async def execute_python_code(
             "output": output_text,
             "error": error,
             "exit_code": exit_code,
+            "timed_out": exec_result.get("timed_out", False),
+            "output_truncated": exec_result.get("output_truncated", False),
+            "sandbox_destroyed": exec_result.get("sandbox_destroyed", False),
         }
     except Exception as e:
         logger.error(f"Failed to execute code in sandbox {sandbox_id}: {e}")
@@ -217,6 +246,9 @@ async def install_package(
     try:
         if not isinstance(package, str) or not package.strip():
             return {"success": False, "error": "Package must be a non-empty string"}
+        policy_error = _validate_package_requirement(package)
+        if policy_error:
+            return {"success": False, "error": policy_error}
 
         code = f"""
 import os
@@ -224,8 +256,19 @@ import subprocess
 import sys
 try:
     os.makedirs("/sandbox/packages", exist_ok=True)
-    cmd = [sys.executable, "-m", "pip", "install", "--no-input", "--disable-pip-version-check", "--target", "/sandbox/packages"]
-    cmd += {package!r}.split()
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--no-input",
+        "--disable-pip-version-check",
+        "--only-binary=:all:",
+        "--no-deps",
+        "--target",
+        "/sandbox/packages",
+        {package!r},
+    ]
     result = subprocess.run(cmd, timeout={timeout}, capture_output=True, text=True)
     if result.returncode == 0:
         print({{"status": "success", "message": "Package(s) installed successfully", "stdout": result.stdout}})

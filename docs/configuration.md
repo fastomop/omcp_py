@@ -20,8 +20,15 @@ The OMCP Python Sandbox uses environment-based configuration with sensible defau
 | `LOG_LEVEL` | `str` | `INFO` | Logging level |
 | `SANDBOX_ALLOW_HOST_GATEWAY` | `bool` | `false` | Allow `host.docker.internal` mapping |
 | `SANDBOX_READ_ONLY` | `bool` | `true` | Run sandboxes with read-only root filesystem |
-| `SANDBOX_NETWORK` | `str` | `None` | Attach sandboxes to a Docker network (`auto` uses compose network) |
-| `QUERY_DEFAULT_LIMIT` | `int` | `100` | Default row limit for `query_omop_table` |\n| `QUERY_MAX_ROWS` | `int` | `1000` | Hard maximum rows returned by any query tool |
+| `SANDBOX_NETWORK` | `str` | `None` | Explicit restricted Docker network; unset means no network |
+| `SANDBOX_REQUIRE_PINNED_IMAGE` | `bool` | `false` | Require `DOCKER_IMAGE` to contain an image digest |
+| `EXECUTION_DEFAULT_TIMEOUT` | `int` | `30` | Default host-enforced execution deadline in seconds |
+| `EXECUTION_MAX_TIMEOUT` | `int` | `300` | Maximum caller-requested execution deadline |
+| `EXECUTION_MAX_OUTPUT_BYTES` | `int` | `1048576` | Combined stdout/stderr retention limit |
+| `PACKAGE_INSTALL_ENABLED` | `bool` | `false` | Enable restricted wheel installation |
+| `PACKAGE_ALLOWLIST` | `str` | empty | Comma-separated normalized package names |
+| `QUERY_DEFAULT_LIMIT` | `int` | `100` | Default row limit for `query_omop_table` |
+| `QUERY_MAX_ROWS` | `int` | `1000` | Hard maximum rows returned by any query tool |
 | `DB_HOST` | `str` | `db` | Postgres host for OMOP tools |
 | `DB_PORT` | `int` | `5432` | Postgres port |
 | `DB_USER` | `str` | `omcp` | Postgres user |
@@ -62,8 +69,15 @@ DOCKER_TLS_VERIFY=false
 # Sandbox Runtime
 SANDBOX_ALLOW_HOST_GATEWAY=false
 SANDBOX_READ_ONLY=true
-# SANDBOX_NETWORK=auto
-QUERY_DEFAULT_LIMIT=100\nQUERY_MAX_ROWS=1000
+# SANDBOX_NETWORK=restricted-egress
+SANDBOX_REQUIRE_PINNED_IMAGE=false
+EXECUTION_DEFAULT_TIMEOUT=30
+EXECUTION_MAX_TIMEOUT=300
+EXECUTION_MAX_OUTPUT_BYTES=1048576
+PACKAGE_INSTALL_ENABLED=false
+PACKAGE_ALLOWLIST=
+QUERY_DEFAULT_LIMIT=100
+QUERY_MAX_ROWS=1000
 
 # Database Configuration
 DB_HOST=db
@@ -114,6 +128,12 @@ class SandboxConfig:
     allow_host_gateway: bool
     sandbox_read_only: bool
     sandbox_network: Optional[str]
+    require_pinned_image: bool
+    execution_default_timeout: int
+    execution_max_timeout: int
+    execution_max_output_bytes: int
+    package_install_enabled: bool
+    package_allowlist: FrozenSet[str]
     query_default_limit: int
     query_max_rows: int
     db_host: str
@@ -138,6 +158,21 @@ def get_config() -> SandboxConfig:
         allow_host_gateway=os.getenv("SANDBOX_ALLOW_HOST_GATEWAY", "false").lower() == "true",
         sandbox_read_only=os.getenv("SANDBOX_READ_ONLY", "true").lower() == "true",
         sandbox_network=os.getenv("SANDBOX_NETWORK") or None,
+        require_pinned_image=os.getenv(
+            "SANDBOX_REQUIRE_PINNED_IMAGE", "false"
+        ).lower() == "true",
+        execution_default_timeout=max(
+            1, int(os.getenv("EXECUTION_DEFAULT_TIMEOUT", "30"))
+        ),
+        execution_max_timeout=max(
+            1, int(os.getenv("EXECUTION_MAX_TIMEOUT", "300"))
+        ),
+        execution_max_output_bytes=max(
+            1024, int(os.getenv("EXECUTION_MAX_OUTPUT_BYTES", "1048576"))
+        ),
+        package_install_enabled=os.getenv(
+            "PACKAGE_INSTALL_ENABLED", "false"
+        ).lower() == "true",
         query_default_limit=max(1, int(os.getenv("QUERY_DEFAULT_LIMIT", "100"))),
         query_max_rows=max(1, int(os.getenv("QUERY_MAX_ROWS", "1000"))),
         db_host=os.getenv("DB_HOST", "db"),

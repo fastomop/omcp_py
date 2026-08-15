@@ -2,6 +2,18 @@
 
 All notable changes to the OMCP Python Sandbox project will be documented in this file.
 
+## [Unreleased]
+
+### Security Hardening
+- Enforced execution deadlines and output limits from the host so sandboxed code cannot disable them.
+- Serialized execution per sandbox and counted in-progress creations against the sandbox capacity limit.
+- Destroyed sandboxes after timeouts or output-limit violations to prevent orphaned or uncertain workloads.
+- Defaulted sandbox networking to disabled, rejected host and container namespace sharing, and removed mutable image fallbacks.
+- Added optional container image digest enforcement.
+- Disabled package installation by default and added exact-version and allowlist requirements for approved installations.
+- Documented the advisory role of static code validation and the runtime controls that form the security boundary.
+- Added regression tests for execution, networking, image, capacity, and package-install policies.
+
 ## [0.2.0] - 2026-01-10
 
 ### 🏗️ Architecture Refactor

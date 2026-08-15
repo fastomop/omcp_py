@@ -12,6 +12,7 @@ from typing import Dict, Optional
 from datetime import datetime, timedelta
 import logging
 import os
+import queue
 import threading
 from omcp_py.core.db import get_session, Sandbox as DBSandbox, create_tables
 
@@ -32,6 +33,7 @@ class SandboxManager:
             logger.error("Docker daemon is unavailable: %s", e)
             raise
         self._lock = threading.RLock()
+        self._pending_creations = 0
         # Try to detect a docker-compose project network to attach sandboxes to.
         # This allows the sandbox to resolve compose service names like 'db'.
         self.compose_network = None
@@ -88,6 +90,7 @@ class SandboxManager:
                     "container": None,  # Not restoring running containers
                     "created_at": db_sandbox.created_at,
                     "last_used": db_sandbox.last_used,
+                    "execution_lock": threading.Lock(),
                 }
         finally:
             session.close()
@@ -138,12 +141,26 @@ class SandboxManager:
         """Create a new isolated Python sandbox container with enhanced security."""
         self._cleanup_old_sandboxes()
         with self._lock:
-            if len(self.sandboxes) >= self.config.max_sandboxes:
+            if (
+                len(self.sandboxes) + self._pending_creations
+                >= self.config.max_sandboxes
+            ):
                 raise RuntimeError("Maximum number of sandboxes reached")
+            self._pending_creations += 1
 
         sandbox_id = str(uuid.uuid4())
+        container = None
 
         try:
+            if (
+                getattr(self.config, "require_pinned_image", False)
+                and "@sha256:" not in self.config.docker_image
+            ):
+                raise RuntimeError(
+                    "DOCKER_IMAGE must be pinned by digest when "
+                    "SANDBOX_REQUIRE_PINNED_IMAGE=true"
+                )
+
             # Create Docker container with enhanced security restrictions
             run_kwargs = dict(
                 image=self.config.docker_image,
@@ -173,6 +190,10 @@ class SandboxManager:
             explicit_net = getattr(self.config, "sandbox_network", None)
             allow_host_gateway = getattr(self.config, "allow_host_gateway", False)
             if explicit_net:
+                if explicit_net == "host" or explicit_net.startswith("container:"):
+                    raise RuntimeError(
+                        "Host and container-shared network modes are forbidden"
+                    )
                 if explicit_net == "auto":
                     if self.compose_network:
                         run_kwargs["network_mode"] = self.compose_network
@@ -184,19 +205,9 @@ class SandboxManager:
                 else:
                     run_kwargs["network_mode"] = explicit_net
             else:
-                # If a compose network is detected and DB_HOST is not localhost,
-                # attach to the compose network to allow DB access by service name.
-                db_host = (getattr(self.config, "db_host", "") or "").lower()
-                if self.compose_network and db_host not in ("localhost", "127.0.0.1"):
-                    run_kwargs["network_mode"] = self.compose_network
-                    logger.info(
-                        "No SANDBOX_NETWORK set; attaching sandbox to compose network '%s' for DB access",
-                        self.compose_network,
-                    )
-                else:
-                    run_kwargs["network_mode"] = (
-                        "bridge" if allow_host_gateway else "none"
-                    )
+                # Never infer network access from nearby services. A sandbox is
+                # networkless unless the operator explicitly opts in.
+                run_kwargs["network_mode"] = "none"
 
             # Allow containers to reach the host via host-gateway if requested and network is enabled
             if allow_host_gateway and run_kwargs.get("network_mode") != "none":
@@ -212,16 +223,13 @@ class SandboxManager:
             ):
                 logger.warning(
                     "Sandbox network is disabled; DB access to host '%s' will fail. "
-                    "Set SANDBOX_NETWORK=auto or a Docker network name to enable DB access.",
+                    "Set SANDBOX_NETWORK explicitly to enable DB access.",
                     db_host,
                 )
 
-            try:
-                container = self.client.containers.run(**run_kwargs)
-            except docker.errors.ImageNotFound:
-                # Fallback: try official python slim if custom image not available
-                run_kwargs["image"] = "python:3.11-slim"
-                container = self.client.containers.run(**run_kwargs)
+            # Fail closed if the configured image is unavailable. Falling back
+            # to a mutable, unreviewed image would silently change the boundary.
+            container = self.client.containers.run(**run_kwargs)
 
             # Track sandbox metadata
             with self._lock:
@@ -229,6 +237,7 @@ class SandboxManager:
                     "container": container,
                     "created_at": datetime.now(),
                     "last_used": datetime.now(),
+                    "execution_lock": threading.Lock(),
                 }
                 self._save_sandbox_to_db(
                     sandbox_id,
@@ -241,7 +250,12 @@ class SandboxManager:
 
         except Exception as e:
             logger.error(f"Failed to create sandbox: {e}")
+            if container is not None:
+                self._invalidate_sandbox(sandbox_id, container, "creation failure")
             raise
+        finally:
+            with self._lock:
+                self._pending_creations -= 1
 
     def remove_sandbox(self, sandbox_id: str):
         """Remove a sandbox container and clean up resources."""
@@ -278,6 +292,77 @@ class SandboxManager:
 
         return merged
 
+    def _invalidate_sandbox(self, sandbox_id: str, container, reason: str) -> None:
+        """Kill and forget a sandbox after a policy-enforcement event."""
+        try:
+            if container:
+                container.kill()
+        except docker.errors.DockerException:
+            logger.warning("Failed to kill sandbox %s after %s", sandbox_id, reason)
+        finally:
+            with self._lock:
+                self.sandboxes.pop(sandbox_id, None)
+            self._remove_sandbox_from_db(sandbox_id)
+
+    def _stream_exec(
+        self,
+        container,
+        cmd: list,
+        exec_env: Dict[str, str],
+        max_output_bytes: int,
+        result_queue: queue.Queue,
+    ) -> None:
+        """Stream a Docker exec while retaining no more than the output cap."""
+        stdout_parts = []
+        stderr_parts = []
+        retained = 0
+        truncated = False
+
+        try:
+            exec_id = self.client.api.exec_create(
+                container.id, cmd, environment=exec_env
+            )["Id"]
+            stream = self.client.api.exec_start(exec_id, stream=True, demux=True)
+            for item in stream:
+                if isinstance(item, tuple):
+                    stdout_chunk, stderr_chunk = item
+                else:
+                    stdout_chunk, stderr_chunk = item, None
+
+                for chunk, target in (
+                    (stdout_chunk, stdout_parts),
+                    (stderr_chunk, stderr_parts),
+                ):
+                    if not chunk:
+                        continue
+                    if not isinstance(chunk, bytes):
+                        chunk = str(chunk).encode()
+                    remaining = max_output_bytes - retained
+                    if remaining <= 0:
+                        truncated = True
+                        break
+                    target.append(chunk[:remaining])
+                    retained += min(len(chunk), remaining)
+                    if len(chunk) > remaining:
+                        truncated = True
+                        break
+                if truncated:
+                    break
+
+            exit_code = None
+            if not truncated:
+                exit_code = self.client.api.exec_inspect(exec_id).get("ExitCode")
+            result_queue.put(
+                {
+                    "exit_code": exit_code,
+                    "stdout": b"".join(stdout_parts),
+                    "stderr": b"".join(stderr_parts),
+                    "output_truncated": truncated,
+                }
+            )
+        except Exception as error:
+            result_queue.put({"exception": error})
+
     def execute_code(
         self,
         sandbox_id: str,
@@ -291,7 +376,7 @@ class SandboxManager:
         Args:
             sandbox_id: The ID of the sandbox
             code: The Python code to execute
-            timeout: Execution timeout in seconds (default: None)
+            timeout: Execution timeout in seconds (clamped to configured policy)
             validate: Whether to validate code for dangerous patterns (default: False)
             env: Optional environment variables for the execution
 
@@ -303,104 +388,142 @@ class SandboxManager:
             if not sandbox:
                 raise ValueError(f"Sandbox {sandbox_id} not found")
             container = sandbox.get("container")
+            execution_lock = sandbox["execution_lock"]
 
-        # Validation
-        if validate:
-            from omcp_py.security.code_validator import validator
-
-            is_valid, error_msg = validator.validate(code)
-            if not is_valid:
-                return {
-                    "output": "",
-                    "exit_code": 1,
-                    "error": f"Security Violation: {error_msg}",
-                }
-
-        with self._lock:
-            self.sandboxes[sandbox_id]["last_used"] = datetime.now()
-            self._save_sandbox_to_db(
-                sandbox_id,
-                self.sandboxes[sandbox_id]["created_at"],
-                self.sandboxes[sandbox_id]["last_used"],
-            )
+        if container is None:
+            raise ValueError(f"Sandbox {sandbox_id} has no active container")
+        if not execution_lock.acquire(blocking=False):
+            return {
+                "output": "",
+                "exit_code": 75,
+                "error": "Sandbox is already executing another request",
+                "timed_out": False,
+                "output_truncated": False,
+                "sandbox_destroyed": False,
+            }
 
         try:
+            # Validation is defence in depth; Docker remains the security boundary.
+            if validate:
+                from omcp_py.security.code_validator import validator
+
+                is_valid, error_msg = validator.validate(code)
+                if not is_valid:
+                    return {
+                        "output": "",
+                        "exit_code": 1,
+                        "error": f"Security Violation: {error_msg}",
+                        "timed_out": False,
+                        "output_truncated": False,
+                        "sandbox_destroyed": False,
+                    }
+
+            with self._lock:
+                self.sandboxes[sandbox_id]["last_used"] = datetime.now()
+                self._save_sandbox_to_db(
+                    sandbox_id,
+                    self.sandboxes[sandbox_id]["created_at"],
+                    self.sandboxes[sandbox_id]["last_used"],
+                )
+
             exec_env = self._merge_env(env)
             exec_env["SANDBOX_USER_CODE"] = code
-            if timeout:
-                exec_env["SANDBOX_EXEC_TIMEOUT"] = str(timeout)
+            requested_timeout = (
+                self.config.execution_default_timeout
+                if timeout is None
+                else int(timeout)
+            )
+            effective_timeout = min(
+                max(1, requested_timeout), self.config.execution_max_timeout
+            )
 
             wrapper = (
-                "import os, sys, signal, traceback\n"
+                "import os, sys, traceback\n"
                 'code = os.environ.get("SANDBOX_USER_CODE", "")\n'
-                'timeout = int(os.environ.get("SANDBOX_EXEC_TIMEOUT", "0"))\n'
-                "if timeout > 0:\n"
-                "    def _timeout_handler(signum, frame):\n"
-                '        raise TimeoutError(f"Execution timed out after {timeout} seconds")\n'
-                "    signal.signal(signal.SIGALRM, _timeout_handler)\n"
-                "    signal.alarm(timeout)\n"
                 "try:\n"
                 '    compiled = compile(code, "<sandbox>", "exec")\n'
                 '    exec(compiled, {"__name__": "__main__", "__package__": None})\n'
-                "except TimeoutError as e:\n"
-                "    sys.stderr.write(str(e))\n"
-                "    sys.exit(124)\n"
                 "except Exception:\n"
                 "    traceback.print_exc(file=sys.stderr)\n"
                 "    sys.exit(1)\n"
-                "finally:\n"
-                "    if timeout > 0:\n"
-                "        signal.alarm(0)\n"
             )
 
             cmd = ["python3", "-u", "-c", wrapper]
-            exec_result = container.exec_run(cmd, demux=True, environment=exec_env)
+            result_queue: queue.Queue = queue.Queue(maxsize=1)
+            worker = threading.Thread(
+                target=self._stream_exec,
+                args=(
+                    container,
+                    cmd,
+                    exec_env,
+                    self.config.execution_max_output_bytes,
+                    result_queue,
+                ),
+                daemon=True,
+            )
+            worker.start()
+            worker.join(effective_timeout)
 
-            # Parse result (docker-py returned tuple or object depending on version/mock)
-            if isinstance(exec_result, tuple) and len(exec_result) == 2:
-                exit_code, streams = exec_result
-                stdout_b, stderr_b = streams
-            else:
-                exit_code = getattr(exec_result, "exit_code", 0)
-                output_obj = getattr(exec_result, "output", b"")
-                if isinstance(output_obj, tuple) and len(output_obj) == 2:
-                    stdout_b, stderr_b = output_obj
-                else:
-                    stdout_b = output_obj
-                    stderr_b = b""
+            if worker.is_alive():
+                self._invalidate_sandbox(sandbox_id, container, "execution timeout")
+                return {
+                    "output": "",
+                    "exit_code": 124,
+                    "error": (
+                        f"Execution exceeded the host-enforced "
+                        f"{effective_timeout}-second deadline"
+                    ),
+                    "timed_out": True,
+                    "output_truncated": False,
+                    "sandbox_destroyed": True,
+                }
 
-            output = stdout_b or b""
-            stderr = stderr_b or b""
+            exec_result = result_queue.get_nowait()
+            if "exception" in exec_result:
+                raise exec_result["exception"]
 
-            # Normalize output
-            try:
-                output_text = (
-                    output.decode(errors="replace")
-                    if isinstance(output, (bytes, bytearray))
-                    else str(output)
-                )
-            except Exception:
-                output_text = str(output)
-            try:
-                stderr_text = (
-                    stderr.decode(errors="replace")
-                    if isinstance(stderr, (bytes, bytearray))
-                    else str(stderr)
-                )
-            except Exception:
-                stderr_text = str(stderr)
+            output_text = exec_result["stdout"].decode(errors="replace")
+            stderr_text = exec_result["stderr"].decode(errors="replace")
+            output_truncated = exec_result["output_truncated"]
+            if output_truncated:
+                self._invalidate_sandbox(sandbox_id, container, "output limit")
+                return {
+                    "output": output_text,
+                    "exit_code": 137,
+                    "error": (
+                        "Execution exceeded the configured output limit of "
+                        f"{self.config.execution_max_output_bytes} bytes"
+                    ),
+                    "timed_out": False,
+                    "output_truncated": True,
+                    "sandbox_destroyed": True,
+                }
 
+            exit_code = exec_result["exit_code"]
             error_text = None
             if exit_code != 0:
-                if exit_code == 124:
-                    error_text = f"Execution timed out after {timeout} seconds"
-                else:
-                    error_text = stderr_text.strip() or f"Exit code {exit_code}"
+                error_text = stderr_text.strip() or f"Exit code {exit_code}"
 
-            return {"output": output_text, "exit_code": exit_code, "error": error_text}
+            return {
+                "output": output_text,
+                "exit_code": exit_code,
+                "error": error_text,
+                "timed_out": False,
+                "output_truncated": False,
+                "sandbox_destroyed": False,
+            }
         except Exception as e:
             logger.error(f"Failed to execute code in sandbox {sandbox_id}: {e}")
-            return {"output": "", "exit_code": 1, "error": str(e)}
+            return {
+                "output": "",
+                "exit_code": 1,
+                "error": str(e),
+                "timed_out": False,
+                "output_truncated": False,
+                "sandbox_destroyed": False,
+            }
+        finally:
+            execution_lock.release()
 
     def list_sandboxes(self) -> list:
         """Return list of all active sandboxes with metadata."""
