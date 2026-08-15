@@ -110,6 +110,10 @@ Set `DB_PATH` to point to a DuckDB file to enable DuckDB-backed queries for `que
 
 By default, `query_duckdb` falls back to `synthetic_data/synthea.duckdb` when `DB_PATH` is unset.
 
+All query tools enforce data-minimisation limits. `QUERY_DEFAULT_LIMIT` controls the default table-query size and `QUERY_MAX_ROWS` is a hard cap for every caller-supplied limit. Raw `WHERE` fragments are not accepted; use the parameterised `filters` argument to `query_omop_table`. `Select_Query` and `query_duckdb` accept a single `SELECT`/read-only `WITH` statement, reject data-modifying CTEs and external file/network table functions, and fetch one additional row only to report whether the response was truncated.
+
+Successful query responses include an `audit` object with a random query ID, UTC execution time, backend, row cap, returned-row count, and truncation flag. It deliberately excludes SQL text and result data so application logs can retain operational provenance without duplicating patient-level data.
+
 ## 🔒 Security Model
 
 - **Code Validation**: User code is scanned for dangerous imports (`os`, `subprocess`) before execution.
@@ -119,6 +123,8 @@ By default, `query_duckdb` falls back to `synthetic_data/synthea.duckdb` when `D
   - `cap_drop=["ALL"]`: All Linux capabilities removed.
   - `pids_limit=50`: Prevents fork bombs.
 - **Resource Limits**: Configurable CPU and Memory caps.
+- **Database Safety**: Bounded result sets, parameterised OMOP filters, PostgreSQL read-only transactions, and read-only DuckDB connections with external access disabled.
+- **Deployment Requirement**: Run PostgreSQL tools with a least-privilege, read-only database role. SQL validation is defence in depth and does not replace database permissions.
 
 To enable database access from sandboxes, set `SANDBOX_NETWORK` to your Docker network (or `auto` to attach to the compose network if detected). If `SANDBOX_NETWORK` is unset and a compose network is detected, the sandbox will auto-attach when `DB_HOST` is not `localhost`/`127.0.0.1`.
 

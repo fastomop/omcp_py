@@ -1,18 +1,18 @@
-
-import asyncio
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from omcp_py.core.globals import sandbox_manager, config
 
 logger = logging.getLogger(__name__)
 
+
 async def ping() -> str:
     return "pong"
+
 
 async def create_sandbox(timeout: Optional[int] = 300) -> Dict[str, Any]:
     """
     Create a new Python sandbox environment.
-    
+
     This tool creates a new Docker container that will serve as an isolated
     Python execution environment. The container is configured with:
     - No network access (security)
@@ -21,10 +21,10 @@ async def create_sandbox(timeout: Optional[int] = 300) -> Dict[str, Any]:
     - Enhanced security options (read-only, dropped capabilities)
     - User isolation (sandboxuser)
     - Temporary filesystem mounts
-    
+
     Args:
         timeout: Optional timeout for the sandbox in seconds (default: 300)
-    
+
     Returns:
         Dict containing:
         - success: Boolean indicating if creation was successful
@@ -36,38 +36,35 @@ async def create_sandbox(timeout: Optional[int] = 300) -> Dict[str, Any]:
     try:
         # Create a new sandbox container using the sandbox manager
         sandbox_id = sandbox_manager.create_sandbox()
-        
+
         # Retrieve the sandbox information to return creation details
         sandbox_info = next(
-            (s for s in sandbox_manager.list_sandboxes() if s["id"] == sandbox_id),
-            None
+            (s for s in sandbox_manager.list_sandboxes() if s["id"] == sandbox_id), None
         )
-        
+
         # Validate that we can retrieve the sandbox info
         if not sandbox_info:
             raise Exception("Failed to get sandbox information after creation")
-        
+
         # Return success response with sandbox details
         return {
             "success": True,
             "sandbox_id": sandbox_id,
             "created_at": sandbox_info["created_at"],
-            "last_used": sandbox_info["last_used"]
+            "last_used": sandbox_info["last_used"],
         }
     except Exception as e:
         logger.error(f"Failed to create sandbox: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
+
 
 async def list_sandboxes(include_inactive: bool = False) -> Dict[str, Any]:
     """
     List all active Python sandboxes.
-    
+
     Args:
         include_inactive: Whether to include inactive sandboxes (default: False)
-    
+
     Returns:
         Dict containing:
         - success: Boolean indicating if listing was successful
@@ -78,35 +75,34 @@ async def list_sandboxes(include_inactive: bool = False) -> Dict[str, Any]:
     try:
         # Get all sandboxes from the sandbox manager
         sandboxes = sandbox_manager.list_sandboxes()
-        
+
         # Filter out inactive sandboxes if requested
         if not include_inactive:
             from datetime import datetime
+
             sandboxes = [
-                s for s in sandboxes
-                if (datetime.now() - datetime.fromisoformat(s["last_used"])).total_seconds() < config.sandbox_timeout
+                s
+                for s in sandboxes
+                if (
+                    datetime.now() - datetime.fromisoformat(s["last_used"])
+                ).total_seconds()
+                < config.sandbox_timeout
             ]
-        
-        return {
-            "success": True,
-            "sandboxes": sandboxes,
-            "count": len(sandboxes)
-        }
+
+        return {"success": True, "sandboxes": sandboxes, "count": len(sandboxes)}
     except Exception as e:
         logger.error(f"Failed to list sandboxes: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
+
 
 async def remove_sandbox(sandbox_id: str, force: bool = False) -> Dict[str, Any]:
     """
     Remove a Python sandbox.
-    
+
     Args:
         sandbox_id: The unique identifier of the sandbox to remove
         force: Whether to force removal of active sandboxes (default: False)
-    
+
     Returns:
         Dict containing:
         - success: Boolean indicating if removal was successful
@@ -115,42 +111,45 @@ async def remove_sandbox(sandbox_id: str, force: bool = False) -> Dict[str, Any]
     """
     try:
         if sandbox_id not in sandbox_manager.sandboxes:
-            return {
-                "success": False,
-                "error": f"Sandbox {sandbox_id} not found"
-            }
-        
+            return {"success": False, "error": f"Sandbox {sandbox_id} not found"}
+
         if not force:
             from datetime import datetime
+
             sandbox = sandbox_manager.sandboxes[sandbox_id]
-            if (datetime.now() - sandbox["last_used"]).total_seconds() < config.sandbox_timeout:
+            if (
+                datetime.now() - sandbox["last_used"]
+            ).total_seconds() < config.sandbox_timeout:
                 return {
                     "success": False,
-                    "error": f"Sandbox {sandbox_id} is still active. Use force=True to remove it."
+                    "error": f"Sandbox {sandbox_id} is still active. Use force=True to remove it.",
                 }
-        
+
         sandbox_manager.remove_sandbox(sandbox_id)
-        
+
         return {
             "success": True,
-            "message": f"Sandbox {sandbox_id} removed successfully"
+            "message": f"Sandbox {sandbox_id} removed successfully",
         }
     except Exception as e:
         logger.error(f"Failed to remove sandbox {sandbox_id}: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
-async def execute_python_code(sandbox_id: str, python_code: Optional[str] = None, code: Optional[str] = None, timeout: Optional[int] = 30) -> Dict[str, Any]:
+
+async def execute_python_code(
+    sandbox_id: str,
+    python_code: Optional[str] = None,
+    code: Optional[str] = None,
+    timeout: Optional[int] = 30,
+) -> Dict[str, Any]:
     """
     Execute Python code in a secure sandbox environment.
-    
+
     Args:
         sandbox_id: The unique identifier of the sandbox to execute code in
         code: The Python code to execute (must be non-empty string)
         timeout: Optional execution timeout in seconds (default: 30)
-    
+
     Returns:
         Dict containing:
         - success: Boolean indicating if execution was successful
@@ -169,7 +168,9 @@ async def execute_python_code(sandbox_id: str, python_code: Optional[str] = None
 
         # Execute the code in the specified sandbox with enhanced security
         # Enable code validation for user-provided code
-        exec_result = sandbox_manager.execute_code(sandbox_id, code_text, timeout=timeout, validate=True)
+        exec_result = sandbox_manager.execute_code(
+            sandbox_id, code_text, timeout=timeout, validate=True
+        )
 
         # exec_result is expected to be a dict with keys: output (bytes or str), exit_code (int), error (str|None)
         output_raw = exec_result.get("output")
@@ -192,20 +193,20 @@ async def execute_python_code(sandbox_id: str, python_code: Optional[str] = None
         }
     except Exception as e:
         logger.error(f"Failed to execute code in sandbox {sandbox_id}: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
-async def install_package(sandbox_id: str, package: str, timeout: Optional[int] = 60) -> Dict[str, Any]:
+
+async def install_package(
+    sandbox_id: str, package: str, timeout: Optional[int] = 60
+) -> Dict[str, Any]:
     """
     Install a Python package in a sandbox.
-    
+
     Args:
         sandbox_id: The unique identifier of the sandbox to install the package in
         package: The package name and version
         timeout: Optional installation timeout in seconds (default: 60)
-    
+
     Returns:
         Dict containing:
         - success: Boolean indicating if installation was successful
@@ -215,11 +216,8 @@ async def install_package(sandbox_id: str, package: str, timeout: Optional[int] 
     """
     try:
         if not isinstance(package, str) or not package.strip():
-            return {
-                "success": False,
-                "error": "Package must be a non-empty string"
-            }
-        
+            return {"success": False, "error": "Package must be a non-empty string"}
+
         code = f"""
 import os
 import subprocess
@@ -247,14 +245,14 @@ except Exception as e:
             "success": result.get("exit_code") == 0,
             "output": result.get("output"),
             "exit_code": result.get("exit_code"),
-            "error": result.get("error")
+            "error": result.get("error"),
         }
     except Exception as e:
-        logger.error(f"Failed to install package {package} in sandbox {sandbox_id}: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        logger.error(
+            f"Failed to install package {package} in sandbox {sandbox_id}: {e}"
+        )
+        return {"success": False, "error": str(e)}
+
 
 def register(mcp):
     """Register all sandbox tools with the MCP instance."""

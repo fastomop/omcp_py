@@ -17,6 +17,7 @@ load_dotenv()
 @dataclass
 class SandboxConfig:
     """Configuration settings for sandbox behavior and limits."""
+
     sandbox_timeout: int
     max_sandboxes: int
     docker_image: str
@@ -27,7 +28,9 @@ class SandboxConfig:
     allow_host_gateway: bool
     sandbox_read_only: bool
     sandbox_network: Optional[str]
-    allow_unsafe_sql: bool
+    # Query data-minimisation controls
+    query_default_limit: int
+    query_max_rows: int
     # Database config
     db_host: str
     db_port: int
@@ -46,10 +49,12 @@ def get_config() -> SandboxConfig:
         debug=os.getenv("DEBUG", "false").lower() == "true",
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         # Sandbox runtime options (use host-gateway to allow containers to reach host)
-        allow_host_gateway=os.getenv("SANDBOX_ALLOW_HOST_GATEWAY", "false").lower() == "true",
+        allow_host_gateway=os.getenv("SANDBOX_ALLOW_HOST_GATEWAY", "false").lower()
+        == "true",
         sandbox_read_only=os.getenv("SANDBOX_READ_ONLY", "true").lower() == "true",
         sandbox_network=os.getenv("SANDBOX_NETWORK") or None,
-        allow_unsafe_sql=os.getenv("ALLOW_UNSAFE_SQL", "false").lower() == "true",
+        query_default_limit=max(1, int(os.getenv("QUERY_DEFAULT_LIMIT", "100"))),
+        query_max_rows=max(1, int(os.getenv("QUERY_MAX_ROWS", "1000"))),
         # Defaults chosen to match the included docker image/service configuration
         db_host=os.getenv("DB_HOST", "db"),
         db_port=int(os.getenv("DB_PORT", "5432")),

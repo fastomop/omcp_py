@@ -5,15 +5,18 @@ from omcp_py.config import get_config
 
 Base = declarative_base()
 
+
 class Sandbox(Base):
-    __tablename__ = 'sandboxes'
+    __tablename__ = "sandboxes"
     id = Column(String, primary_key=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_used = Column(DateTime, default=datetime.utcnow)
 
+
 # Database engine and session setup with lazy initialization
 _engine = None
 _SessionLocal = None
+
 
 def get_engine():
     """Get or create the database engine."""
@@ -24,13 +27,17 @@ def get_engine():
         _engine = create_engine(url, echo=config.debug)
     return _engine
 
+
 def get_session():
     """Get a new database session using lazy-initialized session maker."""
     global _SessionLocal
     if _SessionLocal is None:
-        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+        _SessionLocal = sessionmaker(
+            autocommit=False, autoflush=False, bind=get_engine()
+        )
     return _SessionLocal()
+
 
 def create_tables():
     engine = get_engine()
-    Base.metadata.create_all(engine) 
+    Base.metadata.create_all(engine)

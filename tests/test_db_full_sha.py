@@ -1,5 +1,6 @@
 import sys
 import uuid
+
 sys.path.insert(0, "src")
 
 import pytest
@@ -17,7 +18,9 @@ def test_db_with_image_sha():
         pytest.skip("Docker is not available")
 
     try:
-        image = client.images.get("sha256:11c24f68e03b8e04f4502c66253e0e02d524aff5d91d1a65bbfe0effb3971632")
+        image = client.images.get(
+            "sha256:11c24f68e03b8e04f4502c66253e0e02d524aff5d91d1a65bbfe0effb3971632"
+        )
     except Exception:
         pytest.skip("Image by SHA not found")
 
@@ -39,8 +42,8 @@ def test_db_with_image_sha():
         security_opt=["no-new-privileges"],
         tmpfs={
             "/tmp": "rw,noexec,nosuid,size=100M",
-            "/sandbox": "rw,noexec,nosuid,size=500M"
-        }
+            "/sandbox": "rw,noexec,nosuid,size=500M",
+        },
     )
 
     try:

@@ -3,7 +3,7 @@ import sys
 import pytest
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 def test_synthea_file_structure():
@@ -11,12 +11,10 @@ def test_synthea_file_structure():
         "src/omcp_py/main.py",
         "docker-compose.yml",
         "requirements.txt",
-        "scripts/synthea_workflow.py"
+        "scripts/synthea_workflow.py",
     ]
 
-    required_dirs = [
-        "synthetic_data"
-    ]
+    required_dirs = ["synthetic_data"]
 
     for file_path in required_files:
         assert os.path.exists(file_path), f"Missing required file: {file_path}"

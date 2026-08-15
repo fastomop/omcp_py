@@ -14,7 +14,7 @@ Architecture:
 import logging
 import sys
 from fastmcp import FastMCP
-from omcp_py.core.globals import config, sandbox_manager
+from omcp_py.core.globals import config
 import omcp_py.tools.sandbox_tools as sandbox_tools
 import omcp_py.tools.omop_tools as omop_tools
 import omcp_py.tools.query_tools as query_tools
@@ -22,8 +22,8 @@ import omcp_py.tools.query_tools as query_tools
 # Configure logging to stderr (MCP convention) with structured format
 logging.basicConfig(
     level=config.log_level,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stderr
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stderr,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,10 +33,10 @@ mcp = FastMCP("Python Sandbox")
 
 # Log startup info
 logger.info(
-    "Sandbox network config: SANDBOX_NETWORK=%s, ALLOW_HOST_GATEWAY=%s, detected_compose_network=%s",
-    getattr(config, "sandbox_network", None),
-    getattr(config, "allow_host_gateway", None),
-    getattr(sandbox_manager, "compose_network", None)
+    "Sandbox network config: SANDBOX_NETWORK=%s, ALLOW_HOST_GATEWAY=%s; "
+    "Docker discovery is deferred until first sandbox use",
+    config.sandbox_network,
+    config.allow_host_gateway,
 )
 
 # Register tools from modules
@@ -44,11 +44,12 @@ sandbox_tools.register(mcp)
 omop_tools.register(mcp)
 query_tools.register(mcp)
 
+
 def main() -> None:
     """Main entry point for the FastMCP server."""
     logger.info("Starting FastMCP sandbox server...")
     mcp.run(transport="stdio")
 
+
 if __name__ == "__main__":
     main()
- 

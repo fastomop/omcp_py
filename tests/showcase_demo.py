@@ -5,10 +5,7 @@ This script demonstrates the sandbox functionality step by step
 """
 
 import subprocess
-import json
-import time
-import sys
-import os
+
 
 def print_step(step_num, title):
     """Print a formatted step header"""
@@ -16,29 +13,35 @@ def print_step(step_num, title):
     print(f"STEP {step_num}: {title}")
     print(f"{'='*60}")
 
+
 def print_success(message):
     """Print a success message"""
     print(f"✅ {message}")
+
 
 def print_info(message):
     """Print an info message"""
     print(f"ℹ️  {message}")
 
+
 def print_error(message):
     """Print an error message"""
     print(f"❌ {message}")
+
 
 def print_warning(message):
     """Print a warning message"""
     print(f"⚠️  {message}")
 
+
 def check_server_status():
     """Check if the FastMCP server is running"""
     print_step(1, "Checking Server Status")
-    
+
     try:
-        result = subprocess.run(['pgrep', '-f', 'omcp_py/main.py'], 
-                              capture_output=True, text=True)
+        result = subprocess.run(
+            ["pgrep", "-f", "omcp_py/main.py"], capture_output=True, text=True
+        )
         if result.returncode == 0:
             print_success("FastMCP server is running!")
             print_info("Server process found in system")
@@ -51,13 +54,13 @@ def check_server_status():
         print_error(f"Error checking server: {e}")
         return False
 
+
 def check_docker_status():
     """Check Docker status"""
     print_step(2, "Checking Docker Status")
-    
+
     try:
-        result = subprocess.run(['docker', 'ps'], 
-                              capture_output=True, text=True)
+        result = subprocess.run(["docker", "ps"], capture_output=True, text=True)
         if result.returncode == 0:
             print_success("Docker is running!")
             print_info("Docker daemon is active")
@@ -69,28 +72,30 @@ def check_docker_status():
         print_error(f"Error checking Docker: {e}")
         return False
 
+
 def show_project_structure():
     """Show the project structure"""
     print_step(3, "Project Structure")
-    
+
     print_info("Key files in the project:")
     files = [
         "src/omcp_py/main.py - Main FastMCP server",
         "src/omcp_py/ - Core sandbox implementation",
         "Dockerfile - Docker image for sandboxes",
         "pyproject.toml - Project dependencies",
-        "demo_test.py - Demo script"
+        "demo_test.py - Demo script",
     ]
-    
+
     for file in files:
         print(f"   📄 {file}")
-    
+
     print_success("Project structure is complete")
+
 
 def show_security_features():
     """Show security features"""
     print_step(4, "Security Features")
-    
+
     features = [
         "🐳 Docker-based isolation - Each sandbox runs in a separate container",
         "👤 User isolation - Containers run as 'sandboxuser' (non-root)",
@@ -101,54 +106,56 @@ def show_security_features():
         "⚡ Resource limits - CPU and memory restrictions",
         "🌐 Network isolation - Containers have no network access",
         "⏰ Timeout controls - Automatic cleanup of long-running processes",
-        "🧹 Auto-cleanup - Inactive sandboxes are automatically removed"
+        "🧹 Auto-cleanup - Inactive sandboxes are automatically removed",
     ]
-    
+
     for feature in features:
         print(f"   {feature}")
-    
+
     print_success("Comprehensive security measures implemented")
+
 
 def show_mcp_tools():
     """Show available MCP tools"""
     print_step(5, "Available MCP Tools")
-    
+
     tools = [
         ("🔧 create_sandbox", "Create new isolated Python environment"),
         ("📝 list_sandboxes", "List all active sandboxes"),
         ("🐍 execute_python_code", "Run Python code in sandbox"),
         ("📦 install_package", "Install Python packages in sandbox"),
-        ("🗑️ remove_sandbox", "Remove sandbox containers")
+        ("🗑️ remove_sandbox", "Remove sandbox containers"),
     ]
-    
+
     for tool, description in tools:
         print(f"   {tool} - {description}")
-    
+
     print_success("All tools are ready for use")
+
 
 def show_mcp_inspector():
     """Show MCP Inspector functionality"""
     print_step(6, "MCP Inspector Web UI")
-    
+
     print_info("MCP Inspector provides a web-based interface to test tools:")
-    
+
     # Check if inspector is running
     try:
-        result = subprocess.run(['pgrep', '-f', 'mcp-inspector'], 
-                              capture_output=True, text=True)
+        result = subprocess.run(
+            ["pgrep", "-f", "mcp-inspector"], capture_output=True, text=True
+        )
         if result.returncode == 0:
             print_success("MCP Inspector is running!")
-            
+
             # Try to find the port
             try:
-                result = subprocess.run(['ss', '-tlnp'], 
-                                      capture_output=True, text=True)
-                if '6274' in result.stdout:
+                result = subprocess.run(["ss", "-tlnp"], capture_output=True, text=True)
+                if "6274" in result.stdout:
                     print_info("🌐 Web UI available at: http://127.0.0.1:6274")
                     print_info("📱 Open this URL in your browser to test tools")
                 else:
                     print_warning("Inspector running but port not detected")
-            except:
+            except (OSError, ValueError):
                 print_info("🌐 Web UI typically available at: http://127.0.0.1:6274")
         else:
             print_info("To start MCP Inspector:")
@@ -156,7 +163,7 @@ def show_mcp_inspector():
             print_info("Then open: http://127.0.0.1:6274")
     except Exception as e:
         print_error(f"Error checking inspector: {e}")
-    
+
     print_info("MCP Inspector Features:")
     inspector_features = [
         "🔧 Interactive tool testing - Test all MCP tools in real-time",
@@ -166,18 +173,19 @@ def show_mcp_inspector():
         "📝 Sandbox management - Create, list, and remove sandboxes",
         "🔍 Error debugging - View detailed error messages",
         "📈 Performance monitoring - Track execution times",
-        "💾 Session persistence - Save and load test scenarios"
+        "💾 Session persistence - Save and load test scenarios",
     ]
-    
+
     for feature in inspector_features:
         print(f"   {feature}")
-    
+
     print_success("MCP Inspector provides complete tool testing interface")
+
 
 def show_architecture():
     """Show the system architecture"""
     print_step(7, "System Architecture")
-    
+
     print_info("Architecture Overview:")
     print("   🖥️  MCP Client (Agent)")
     print("        ↓ (JSON-RPC over stdio)")
@@ -186,22 +194,24 @@ def show_architecture():
     print("   🐳 Docker Containers (Python Sandboxes)")
     print("        ↓ (Flask HTTP)")
     print("   🔧 Sandbox Server (Docker container)")
-    
+
     print_info("Data Flow:")
     print("   1. Agent sends MCP tool call")
     print("   2. FastMCP server processes request")
     print("   3. Sandbox manager creates/uses Docker container")
     print("   4. Code executes in isolated environment")
     print("   5. Results returned via MCP protocol")
-    
+
     print_success("Architecture is secure and scalable")
+
 
 def show_usage_example():
     """Show usage example"""
     print_step(8, "Usage Example")
-    
+
     print_info("Example MCP tool call:")
-    print("""
+    print(
+        """
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -215,14 +225,16 @@ def show_usage_example():
     }
   }
 }
-""")
-    
+"""
+    )
+
     print_success("Ready for integration with MCP clients")
+
 
 def show_demo_instructions():
     """Show demo instructions"""
     print_step(9, "Demo Instructions")
-    
+
     print_info("To demonstrate the sandbox system:")
     print("   1. Start the FastMCP server:")
     print("      uv run src/omcp_py/main.py")
@@ -239,8 +251,9 @@ def show_demo_instructions():
     print("      - Install packages")
     print("      - List sandboxes")
     print("      - Remove sandboxes")
-    
+
     print_success("Perfect for live demonstrations and testing!")
+
 
 def main():
     """Main demonstration function"""
@@ -248,7 +261,7 @@ def main():
     print("=" * 60)
     print("This demo shows the complete sandbox system")
     print("=" * 60)
-    
+
     # Run all demonstration steps
     check_server_status()
     check_docker_status()
@@ -259,11 +272,11 @@ def main():
     show_architecture()
     show_usage_example()
     show_demo_instructions()
-    
+
     print("\n" + "=" * 60)
     print("🎉 DEMONSTRATION COMPLETE!")
     print("=" * 60)
 
 
 if __name__ == "__main__":
-    main() 
+    main()

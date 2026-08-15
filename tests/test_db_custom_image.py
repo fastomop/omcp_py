@@ -1,5 +1,6 @@
 import sys
 import uuid
+
 sys.path.insert(0, "src")
 
 import pytest
@@ -39,8 +40,8 @@ def test_db_with_custom_image():
         security_opt=["no-new-privileges"],
         tmpfs={
             "/tmp": "rw,noexec,nosuid,size=100M",
-            "/sandbox": "rw,noexec,nosuid,size=500M"
-        }
+            "/sandbox": "rw,noexec,nosuid,size=500M",
+        },
     )
 
     try:

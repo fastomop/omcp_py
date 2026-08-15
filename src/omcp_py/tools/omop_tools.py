@@ -1,4 +1,3 @@
-
 import logging
 import re
 from pathlib import Path
@@ -7,16 +6,18 @@ from omcp_py.core.globals import sandbox_manager, config
 
 logger = logging.getLogger(__name__)
 
+
 def _get_script_content(script_name: str) -> str:
     """Load script content."""
     # Find the script path relative to this module
     # src/omcp_py/tools/omop_tools.py -> src/omcp_py/scripts/omop/{script_name}
     script_path = Path(__file__).parent.parent / "scripts" / "omop" / script_name
-    
+
     if not script_path.exists():
         raise FileNotFoundError(f"Script {script_name} not found at {script_path}")
-        
+
     return script_path.read_text()
+
 
 def _db_env() -> Dict[str, str]:
     return {
@@ -27,8 +28,10 @@ def _db_env() -> Dict[str, str]:
         "OMOP_DB_PORT": str(config.db_port),
     }
 
+
 def _validate_table_name(table_name: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table_name))
+
 
 def _execute_script(
     sandbox_id: str,
@@ -40,6 +43,7 @@ def _execute_script(
     if extra_env:
         env.update({k: str(v) for k, v in extra_env.items()})
     return sandbox_manager.execute_code(sandbox_id, code, env=env)
+
 
 async def create_omop_schema(sandbox_id: str) -> dict:
     """
@@ -55,11 +59,12 @@ async def create_omop_schema(sandbox_id: str) -> dict:
             "success": result.get("exit_code") == 0,
             "output": result.get("output", ""),
             "exit_code": result.get("exit_code"),
-            "error": result.get("error")
+            "error": result.get("error"),
         }
     except Exception as e:
         logger.error(f"Failed to create OMOP schema: {e}")
         return {"success": False, "error": str(e)}
+
 
 async def load_synthea_to_postgres(
     sandbox_id: str,
@@ -81,11 +86,12 @@ async def load_synthea_to_postgres(
             "success": result.get("exit_code") == 0,
             "output": result.get("output", ""),
             "exit_code": result.get("exit_code"),
-            "error": result.get("error")
+            "error": result.get("error"),
         }
     except Exception as e:
         logger.error(f"Failed to load Synthea data: {e}")
         return {"success": False, "error": str(e)}
+
 
 async def analyze_omop_data(sandbox_id: str, analysis_type: str = "basic") -> dict:
     """
@@ -104,13 +110,16 @@ async def analyze_omop_data(sandbox_id: str, analysis_type: str = "basic") -> di
             "success": result.get("exit_code") == 0,
             "output": result.get("output", ""),
             "exit_code": result.get("exit_code"),
-            "error": result.get("error")
+            "error": result.get("error"),
         }
     except Exception as e:
         logger.error(f"Failed to analyze OMOP data: {e}")
         return {"success": False, "error": str(e)}
 
-async def llm_dataframe_operation(sandbox_id: str, operation: str, table_name: str = "person") -> dict:
+
+async def llm_dataframe_operation(
+    sandbox_id: str, operation: str, table_name: str = "person"
+) -> dict:
     """
     Perform LLM-friendly dataframe operations on OMOP data.
     Args:
@@ -124,7 +133,7 @@ async def llm_dataframe_operation(sandbox_id: str, operation: str, table_name: s
     if not _validate_table_name(table_name):
         return {"success": False, "error": "Invalid table name"}
 
-    code = '''
+    code = """
 import pandas as pd
 import sys
 import json
@@ -158,7 +167,7 @@ try:
 except Exception as e:
     print(f"ERROR: {{str(e)}}")
     sys.exit(1)
-'''
+"""
     env = _db_env()
     env["OMOP_TABLE_NAME"] = table_name
     env["LLM_OPERATION"] = operation
@@ -167,8 +176,9 @@ except Exception as e:
         "success": result.get("exit_code") == 0,
         "output": result.get("output", ""),
         "exit_code": result.get("exit_code"),
-        "error": result.get("error")
+        "error": result.get("error"),
     }
+
 
 def register(mcp):
     """Register all OMOP tools with the MCP instance."""

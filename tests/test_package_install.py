@@ -1,5 +1,6 @@
 import sys
 import pytest
+
 sys.path.insert(0, "src")
 
 from conftest import require_integration

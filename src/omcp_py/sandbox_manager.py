@@ -17,12 +17,15 @@ from omcp_py.core.db import get_session, Sandbox as DBSandbox, create_tables
 
 logger = logging.getLogger(__name__)
 
+
 class SandboxManager:
     """Manages Docker-based Python sandboxes with automatic cleanup and enhanced security."""
-    
+
     def __init__(self, config):
         self.config = config
-        self.client = docker.DockerClient(base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock"))
+        self.client = docker.DockerClient(
+            base_url=os.getenv("DOCKER_HOST", "unix://var/run/docker.sock")
+        )
         try:
             self.client.ping()
         except docker.errors.DockerException as e:
@@ -38,15 +41,22 @@ class SandboxManager:
             for n in nets:
                 try:
                     attrs = n.attrs
-                    containers = attrs.get('Containers') or {}
+                    containers = attrs.get("Containers") or {}
                     for cid in containers.keys():
                         try:
                             c = self.client.containers.get(cid)
                             # Check for common DB indicators: service label or container name or image
                             labels = c.labels or {}
-                            name = (c.name or '').lower()
-                            img = (getattr(c, 'image', None) and getattr(c.image, 'tags', [])) or []
-                            if labels.get('com.docker.compose.service') == 'db' or 'db' == name or any('postgres' in t for t in img):
+                            name = (c.name or "").lower()
+                            img = (
+                                getattr(c, "image", None)
+                                and getattr(c.image, "tags", [])
+                            ) or []
+                            if (
+                                labels.get("com.docker.compose.service") == "db"
+                                or "db" == name
+                                or any("postgres" in t for t in img)
+                            ):
                                 self.compose_network = n.name
                                 raise StopIteration
                         except Exception:
@@ -77,7 +87,7 @@ class SandboxManager:
                 self.sandboxes[db_sandbox.id] = {
                     "container": None,  # Not restoring running containers
                     "created_at": db_sandbox.created_at,
-                    "last_used": db_sandbox.last_used
+                    "last_used": db_sandbox.last_used,
                 }
         finally:
             session.close()
@@ -89,7 +99,9 @@ class SandboxManager:
         try:
             db_sandbox = session.query(DBSandbox).filter_by(id=sandbox_id).first()
             if not db_sandbox:
-                db_sandbox = DBSandbox(id=sandbox_id, created_at=created_at, last_used=last_used)
+                db_sandbox = DBSandbox(
+                    id=sandbox_id, created_at=created_at, last_used=last_used
+                )
                 session.add(db_sandbox)
             else:
                 db_sandbox.last_used = last_used
@@ -115,7 +127,9 @@ class SandboxManager:
         to_remove = []
         with self._lock:
             for sandbox_id, sandbox in self.sandboxes.items():
-                if now - sandbox["last_used"] > timedelta(seconds=self.config.sandbox_timeout):
+                if now - sandbox["last_used"] > timedelta(
+                    seconds=self.config.sandbox_timeout
+                ):
                     to_remove.append(sandbox_id)
         for sandbox_id in to_remove:
             self.remove_sandbox(sandbox_id)
@@ -126,9 +140,9 @@ class SandboxManager:
         with self._lock:
             if len(self.sandboxes) >= self.config.max_sandboxes:
                 raise RuntimeError("Maximum number of sandboxes reached")
-        
+
         sandbox_id = str(uuid.uuid4())
-        
+
         try:
             # Create Docker container with enhanced security restrictions
             run_kwargs = dict(
@@ -136,19 +150,19 @@ class SandboxManager:
                 command=["sleep", "infinity"],  # Safer than string command
                 detach=True,
                 name=f"omcp-sandbox-{sandbox_id}",
-                mem_limit="512m",         # Memory limit
-                cpu_period=100000,        # CPU limits
+                mem_limit="512m",  # Memory limit
+                cpu_period=100000,  # CPU limits
                 cpu_quota=50000,
-                remove=True,              # Auto-remove when stopped
-                user=1000,                # User isolation; image should provide a non-root UID
-                cap_drop=["ALL"],        # Drop all capabilities
+                remove=True,  # Auto-remove when stopped
+                user=1000,  # User isolation; image should provide a non-root UID
+                cap_drop=["ALL"],  # Drop all capabilities
                 security_opt=["no-new-privileges"],  # Prevent privilege escalation
                 pids_limit=50,
                 ulimits=[Ulimit(name="nproc", soft=50, hard=100)],
-                tmpfs={                   # Temporary filesystem mounts
+                tmpfs={  # Temporary filesystem mounts
                     "/tmp": "rw,noexec,nosuid,size=100M",
-                    "/sandbox": "rw,noexec,nosuid,size=500M"
-                }
+                    "/sandbox": "rw,noexec,nosuid,size=500M",
+                },
             )
 
             # Respect config-driven read-only flag
@@ -163,7 +177,9 @@ class SandboxManager:
                     if self.compose_network:
                         run_kwargs["network_mode"] = self.compose_network
                     else:
-                        logger.warning("SANDBOX_NETWORK=auto set but no compose network detected; using no network")
+                        logger.warning(
+                            "SANDBOX_NETWORK=auto set but no compose network detected; using no network"
+                        )
                         run_kwargs["network_mode"] = "none"
                 else:
                     run_kwargs["network_mode"] = explicit_net
@@ -178,15 +194,22 @@ class SandboxManager:
                         self.compose_network,
                     )
                 else:
-                    run_kwargs["network_mode"] = "bridge" if allow_host_gateway else "none"
+                    run_kwargs["network_mode"] = (
+                        "bridge" if allow_host_gateway else "none"
+                    )
 
             # Allow containers to reach the host via host-gateway if requested and network is enabled
             if allow_host_gateway and run_kwargs.get("network_mode") != "none":
-                run_kwargs.setdefault("extra_hosts", {})["host.docker.internal"] = "host-gateway"
+                run_kwargs.setdefault("extra_hosts", {})[
+                    "host.docker.internal"
+                ] = "host-gateway"
 
             # Warn if sandbox has no network but DB host isn't localhost
             db_host = (getattr(self.config, "db_host", "") or "").lower()
-            if run_kwargs.get("network_mode") == "none" and db_host not in ("localhost", "127.0.0.1"):
+            if run_kwargs.get("network_mode") == "none" and db_host not in (
+                "localhost",
+                "127.0.0.1",
+            ):
                 logger.warning(
                     "Sandbox network is disabled; DB access to host '%s' will fail. "
                     "Set SANDBOX_NETWORK=auto or a Docker network name to enable DB access.",
@@ -197,7 +220,7 @@ class SandboxManager:
                 container = self.client.containers.run(**run_kwargs)
             except docker.errors.ImageNotFound:
                 # Fallback: try official python slim if custom image not available
-                run_kwargs['image'] = 'python:3.11-slim'
+                run_kwargs["image"] = "python:3.11-slim"
                 container = self.client.containers.run(**run_kwargs)
 
             # Track sandbox metadata
@@ -205,17 +228,21 @@ class SandboxManager:
                 self.sandboxes[sandbox_id] = {
                     "container": container,
                     "created_at": datetime.now(),
-                    "last_used": datetime.now()
+                    "last_used": datetime.now(),
                 }
-                self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
-            
+                self._save_sandbox_to_db(
+                    sandbox_id,
+                    self.sandboxes[sandbox_id]["created_at"],
+                    self.sandboxes[sandbox_id]["last_used"],
+                )
+
             logger.info(f"Created new sandbox {sandbox_id}")
             return sandbox_id
-            
+
         except Exception as e:
             logger.error(f"Failed to create sandbox: {e}")
             raise
-    
+
     def remove_sandbox(self, sandbox_id: str):
         """Remove a sandbox container and clean up resources."""
         with self._lock:
@@ -223,7 +250,7 @@ class SandboxManager:
             if not sandbox:
                 return
             container = sandbox.get("container")
-        
+
         try:
             # Stop and remove the Docker container
             if container:
@@ -276,22 +303,27 @@ class SandboxManager:
             if not sandbox:
                 raise ValueError(f"Sandbox {sandbox_id} not found")
             container = sandbox.get("container")
-        
+
         # Validation
         if validate:
             from omcp_py.security.code_validator import validator
+
             is_valid, error_msg = validator.validate(code)
             if not is_valid:
                 return {
                     "output": "",
                     "exit_code": 1,
-                    "error": f"Security Violation: {error_msg}"
+                    "error": f"Security Violation: {error_msg}",
                 }
-        
+
         with self._lock:
             self.sandboxes[sandbox_id]["last_used"] = datetime.now()
-            self._save_sandbox_to_db(sandbox_id, self.sandboxes[sandbox_id]["created_at"], self.sandboxes[sandbox_id]["last_used"])
-        
+            self._save_sandbox_to_db(
+                sandbox_id,
+                self.sandboxes[sandbox_id]["created_at"],
+                self.sandboxes[sandbox_id]["last_used"],
+            )
+
         try:
             exec_env = self._merge_env(env)
             exec_env["SANDBOX_USER_CODE"] = code
@@ -299,26 +331,26 @@ class SandboxManager:
                 exec_env["SANDBOX_EXEC_TIMEOUT"] = str(timeout)
 
             wrapper = (
-                'import os, sys, signal, traceback\n'
+                "import os, sys, signal, traceback\n"
                 'code = os.environ.get("SANDBOX_USER_CODE", "")\n'
                 'timeout = int(os.environ.get("SANDBOX_EXEC_TIMEOUT", "0"))\n'
-                'if timeout > 0:\n'
-                '    def _timeout_handler(signum, frame):\n'
+                "if timeout > 0:\n"
+                "    def _timeout_handler(signum, frame):\n"
                 '        raise TimeoutError(f"Execution timed out after {timeout} seconds")\n'
-                '    signal.signal(signal.SIGALRM, _timeout_handler)\n'
-                '    signal.alarm(timeout)\n'
-                'try:\n'
+                "    signal.signal(signal.SIGALRM, _timeout_handler)\n"
+                "    signal.alarm(timeout)\n"
+                "try:\n"
                 '    compiled = compile(code, "<sandbox>", "exec")\n'
                 '    exec(compiled, {"__name__": "__main__", "__package__": None})\n'
-                'except TimeoutError as e:\n'
-                '    sys.stderr.write(str(e))\n'
-                '    sys.exit(124)\n'
-                'except Exception:\n'
-                '    traceback.print_exc(file=sys.stderr)\n'
-                '    sys.exit(1)\n'
-                'finally:\n'
-                '    if timeout > 0:\n'
-                '        signal.alarm(0)\n'
+                "except TimeoutError as e:\n"
+                "    sys.stderr.write(str(e))\n"
+                "    sys.exit(124)\n"
+                "except Exception:\n"
+                "    traceback.print_exc(file=sys.stderr)\n"
+                "    sys.exit(1)\n"
+                "finally:\n"
+                "    if timeout > 0:\n"
+                "        signal.alarm(0)\n"
             )
 
             cmd = ["python3", "-u", "-c", wrapper]
@@ -342,11 +374,19 @@ class SandboxManager:
 
             # Normalize output
             try:
-                output_text = output.decode(errors="replace") if isinstance(output, (bytes, bytearray)) else str(output)
+                output_text = (
+                    output.decode(errors="replace")
+                    if isinstance(output, (bytes, bytearray))
+                    else str(output)
+                )
             except Exception:
                 output_text = str(output)
             try:
-                stderr_text = stderr.decode(errors="replace") if isinstance(stderr, (bytes, bytearray)) else str(stderr)
+                stderr_text = (
+                    stderr.decode(errors="replace")
+                    if isinstance(stderr, (bytes, bytearray))
+                    else str(stderr)
+                )
             except Exception:
                 stderr_text = str(stderr)
 
@@ -370,7 +410,7 @@ class SandboxManager:
                 {
                     "id": sandbox_id,
                     "created_at": sandbox["created_at"].isoformat(),
-                    "last_used": sandbox["last_used"].isoformat()
+                    "last_used": sandbox["last_used"].isoformat(),
                 }
                 for sandbox_id, sandbox in self.sandboxes.items()
             ]
